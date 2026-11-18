@@ -1,0 +1,7 @@
+yt-dlp==2026.10.26
+anthropic==2.10.0
+pydantic==2.14.3
+pillow==13.0.0
+faster-whisper==1.2.1
+numpy==2.5.5
+textual==8.2.8

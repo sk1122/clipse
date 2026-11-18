@@ -1,0 +1,16 @@
+# secrets
+.env
+
+# outputs: clips, recordings, job logs (large, and contain other people's stream footage)
+out/
+launch/build/
+*.mp4
+*.mov
+*.wav
+*.gif
+
+# python / OS
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
