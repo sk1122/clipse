@@ -1,4 +1,4 @@
-# kattappa
+# clipse
 
 Paste a YouTube link (live or finished) and get vertical, captioned short clips of the moments most likely to go viral. For a live stream it clips while the stream is still on air, and also goes back over the part that already aired.
 
@@ -37,10 +37,10 @@ Fonts are picked per system: Arial on macOS, and Noto or DejaVu on Linux (any in
 ## Run it
 
 ```bash
-./kattappa                    # TUI: paste a link, pick options, watch progress, review clips
-./kattappa run <url>          # the same job from the command line
-./kattappa hook <clip.mp4>    # add a hook intro to a clip you already have
-./kattappa models             # list the speech and judge models
+./clipse                      # TUI: paste a link, pick options, watch progress, review clips
+./clipse run <url>            # the same job from the command line
+./clipse hook <clip.mp4>      # add a hook intro to a clip you already have
+./clipse models               # list the speech and judge models
 ```
 
 Run the TUI in a normal terminal (Terminal, iTerm, …). Some embedded terminal panels don't pass mouse clicks through, but everything also works from the keyboard.
@@ -93,7 +93,7 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 
 | File | What it does |
 |---|---|
-| `clip.py` | CLI entry point (`kattappa` wraps it) and the finished-stream pipeline |
+| `clip.py` | CLI entry point (`clipse` wraps it) and the finished-stream pipeline |
 | `live.py` | live mode: recorder, chat spike detector, voice loudness, live clips |
 | `catchup.py` | clipping the already-aired part of a live stream |
 | `sources.py` | yt-dlp: metadata, chat replay, captions, audio |
@@ -118,10 +118,10 @@ Each job writes to `out/<video id>/`:
 
 ## Legal
 
-kattappa is a tool for clipping streams **you own or have permission to use**. You are responsible for how you use it.
+clipse is a tool for clipping streams **you own or have permission to use**. You are responsible for how you use it.
 
 - **Copyright and creator rights:** clips contain the streamer's footage, voice and likeness. Get the creator's permission before posting clips of their stream, and follow the platform's rules on reposted content.
-- **YouTube's Terms of Service:** kattappa downloads YouTube content with [yt-dlp](https://github.com/yt-dlp/yt-dlp). It doesn't bypass DRM, paywalls, members-only content or sign-in. Downloading may still be restricted by YouTube's terms, so check they allow your use.
+- **YouTube's Terms of Service:** clipse downloads YouTube content with [yt-dlp](https://github.com/yt-dlp/yt-dlp). It doesn't bypass DRM, paywalls, members-only content or sign-in. Downloading may still be restricted by YouTube's terms, so check they allow your use.
 - **AI output:** titles, hooks, translations and clip choices are written by an AI model and can be wrong. Review every clip before you post it.
 - **No warranty:** the software is provided as is, under the MIT License (see [LICENSE](LICENSE)).
 

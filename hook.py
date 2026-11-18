@@ -1,5 +1,5 @@
 """Hook intro: open a clip with its best 2.5 seconds (a teaser cold-open) and a big hook line, then a quick
-flash and the full clip. Works on any finished clip:  kattappa hook <clip.mp4> [--text "..."]"""
+flash and the full clip. Works on any finished clip:  clipse hook <clip.mp4> [--text "..."]"""
 from __future__ import annotations
 
 import json
@@ -137,7 +137,7 @@ def add_hook_intro(clip: Path, out: Path | None = None, text: str | None = None,
 
 
 def meta_for(clip: Path) -> dict:
-    """Find a clip's title/hook/why in its job's events, if it was made by kattappa."""
+    """Find a clip's title/hook/why in its job's events, if it was made by clipse."""
     for job in Path(clip).resolve().parents:
         ev = job / "events.jsonl"
         if ev.exists():

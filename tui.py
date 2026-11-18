@@ -1,4 +1,4 @@
-"""kattappa TUI — paste a YouTube link, watch the job, review and manage the clips.
+"""clipse TUI — paste a YouTube link, watch the job, review and manage the clips.
 
 Jobs run as separate background processes (they keep going if you close the TUI); the TUI follows
 them through each job's out/<id>/job.json + events.jsonl.
@@ -167,7 +167,7 @@ class Confirm(ModalScreen[bool]):
 # ---------------------------------------------------------------- app
 
 class ClipperApp(App):
-    TITLE = "kattappa"
+    TITLE = "clipse"
     SUB_TITLE = "YouTube livestream → viral clips"
     CSS = """
     #newjob { height: auto; padding: 0 1; border: round $primary; }
@@ -288,7 +288,7 @@ class ClipperApp(App):
         self.follow_url = url          # jump to this job as soon as it shows up
         self.query_one("#url", Input).value = ""
         self.query_one("#jobs", DataTable).focus()
-        self.notify("Job started — it keeps running even if you close kattappa.", title="Starting")
+        self.notify("Job started — it keeps running even if you close clipse.", title="Starting")
 
     # ---- refresh
     def refresh_all(self) -> None:

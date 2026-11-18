@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""kattappa — turn YouTube livestreams into viral-ready short clips.
+"""clipse — turn YouTube livestreams into viral-ready short clips.
 
-    kattappa                        open the TUI (paste a link, watch progress, manage clips)
-    kattappa run <youtube-url>      clip a stream from the command line
-    kattappa models                 list the speech and judge models you can pick
+    clipse                          open the TUI (paste a link, watch progress, manage clips)
+    clipse run <youtube-url>        clip a stream from the command line
+    clipse models                   list the speech and judge models you can pick
 
 A stream that's on air is clipped live (chat + streamer loudness spikes), plus — by default — the part
 that already aired. A finished stream/VOD is analysed end to end (chat replay, most-replayed, audio).
@@ -53,7 +53,7 @@ def load_dotenv() -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="kattappa", description=__doc__,
+    ap = argparse.ArgumentParser(prog="clipse", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("tui", help="open the terminal UI")
@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         argv = ["tui"]
     elif argv[0].startswith("http") or "youtu" in argv[0]:
-        argv = ["run", *argv]          # `kattappa <url>` works too
+        argv = ["run", *argv]          # `clipse <url>` works too
     a = build_parser().parse_args(argv)
 
     if a.cmd == "tui":
