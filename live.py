@@ -26,7 +26,7 @@ import progress
 import render
 import sources
 import transcribe
-from signals import HYPE, ChatFilter
+from signals import HYPE, ChatFilter, channel_names
 
 BUCKET = 5.0
 CHAT_LAG = 8.0       # viewers type a few seconds after they see the moment
@@ -100,7 +100,7 @@ class Live:
         self.chat_file = self.work / "chat"
         self.chat: list[sources.ChatMsg] = []
         self.chat_pos = 0
-        self.filter = ChatFilter()
+        self.filter = ChatFilter(channel_names(info))
         self.thresholds = sorted(float(x) for x in str(a.sensitivity).split(","))
         # chat alone may fire a candidate a bit below the lowest threshold; the final score
         # (chat + streamer loudness) decides whether it really becomes a clip

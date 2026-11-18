@@ -231,7 +231,7 @@ def run_vod(a, info: dict, out_dir: Path) -> int:
     print("1/5 Collecting signals (chat, captions, replays, audio)...")
     S(1, "Collecting signals", "chat replay")
     raw_chat = sources.fetch_chat(a.url, info, work)
-    chat = signals.filter_chat(raw_chat)
+    chat = signals.filter_chat(raw_chat, signals.channel_names(info))
     if raw_chat:
         print(f"    ignored {len(raw_chat) - len(chat)} spam/command/request messages")
     S(1, "Collecting signals", "captions", 0.4)

@@ -98,7 +98,21 @@ Each job writes to `out/<video id>/`:
 
 `out/` and `.env` are git-ignored.
 
+## Legal
+
+kattappa is a tool for clipping streams **you own or have permission to use**. You are responsible for how you use it.
+
+- **Copyright and creator rights:** clips contain the streamer's footage, voice and likeness. Get the creator's permission before posting clips of their stream, and follow the platform's rules on reposted content.
+- **YouTube's Terms of Service:** kattappa downloads YouTube content with [yt-dlp](https://github.com/yt-dlp/yt-dlp). It doesn't bypass DRM, paywalls, members-only content or sign-in. Downloading may still be restricted by YouTube's terms, so check they allow your use.
+- **AI output:** titles, hooks, translations and clip choices are written by an AI model and can be wrong. Review every clip before you post it.
+- **No warranty:** the software is provided as is, under the MIT License (see [LICENSE](LICENSE)).
+
+Not affiliated with or endorsed by YouTube, Google, Anthropic, or any creator.
+
 ## Notes
 
-- **Footage rights:** clips contain the streamer's footage and audio. Check the creator's permission and the platform's rules before posting them.
 - **API cost:** live mode calls the judge model on every spike that passes the threshold. Choose a cheaper judge, or raise `--sensitivity`, for long streams.
+
+## License
+
+[MIT](LICENSE)

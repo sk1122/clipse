@@ -127,7 +127,7 @@ class ChatFilter:
     """Keeps only chat that looks like a reaction. Drops:
       * bot commands and giveaway entries (/claim, !code)
       * requests aimed at the streamer (code, PS5, shoutout, "mera naam lo", reply/pin me, links)
-      * bare greetings ("hi bhai", "hello mythpat", "love from Pune")
+      * bare greetings ("hi bhai", "hello <channel>", "love from Pune")
       * vote waves and copy-paste: a message that suddenly dominates chat ("timepass"/"mission", "1"/"2")
     Floods of genuine reactions (LMAO, W, 💀, "no way") are never dropped."""
 
@@ -136,16 +136,18 @@ class ChatFilter:
         r"\b(codes?|ps ?5|giveaway|give ?away|shout ?outs?|s/o|na+m lo|name lo|mera na+m|my name|"
         r"reply (pls|please|me|do|karo|kardo|de)|notice me|pin (me|kar|karo)|heart (do|de|pls|please)|"
         r"subscribe|sub kar|insta(gram)?|follow (me|kar)|membership|https?://|www\.)", re.I)
-    GREETING = re.compile(
+    GREETING_SRC = (
         r"^\W*(h+i+|hello+|helo|hey+|hlo|hy|namaste|namaskar|salam|ram ram|jai shree ram|gm|gn|"
         r"good (morning|evening|night)|love you|love from [\w ]+|from [\w ]+|"
         r"(i ?a?m )?watching (from|since) [\w ]+|kaise ho|kaisa hai)"
-        r"(\W+(bhai|bro|bhaiya|sir|guys|everyone|all|dosto|\w+pat|carry|ji))*\W*$", re.I)
+        r"(\W+(bhai|bro|bhaiya|sir|guys|everyone|all|dosto|ji{names}))*\W*$")
     VOTE = re.compile(r"^\W*\d{1,3}\W*$")
 
-    def __init__(self, window: float = 120.0, share: float = 0.10, burst_window: float = 20.0,
+    def __init__(self, names: list[str] | None = None, window: float = 120.0, share: float = 0.10, burst_window: float = 20.0,
                  burst_share: float = 0.25):
         from collections import Counter, deque
+        extra = "".join("|" + re.escape(n.lower()) for n in (names or []) if len(n) > 2)
+        self.GREETING = re.compile(self.GREETING_SRC.replace("{names}", extra), re.I)
         self.window, self.share = window, share
         self.burst_window, self.burst_share = burst_window, burst_share
         self.recent: deque = deque()
@@ -189,6 +191,16 @@ class ChatFilter:
         return self.reason(msg) is None
 
 
-def filter_chat(msgs: list[ChatMsg]) -> list[ChatMsg]:
-    f = ChatFilter()
+def channel_names(info: dict) -> list[str]:
+    """Words of the channel name (e.g. 'SomeoneIsLive' → someoneislive, someone), for greeting detection."""
+    raw = " ".join(filter(None, [info.get("channel"), info.get("uploader"), info.get("uploader_id")]))
+    words = {w.lower() for w in re.findall(r"[A-Za-z0-9]+", raw)}
+    words |= {p.lower() for w in re.findall(r"[A-Za-z0-9]+", raw) for p in re.findall(r"[A-Z]?[a-z0-9]+", w)}
+    for w in list(words):
+        words.add(re.sub(r"(is)?(live|tv|gaming|official|yt)$", "", w))
+    return sorted(w for w in words if len(w) > 2 and w not in {"live", "official", "gaming", "tv"})
+
+
+def filter_chat(msgs: list[ChatMsg], names: list[str] | None = None) -> list[ChatMsg]:
+    f = ChatFilter(names)
     return [m for m in sorted(msgs, key=lambda m: m.t) if f.keep(m)]
