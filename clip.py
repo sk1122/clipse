@@ -69,8 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
     m = r.add_argument_group("models")
     m.add_argument("--speech-model", default=DEFAULT_SPEECH, choices=list(SPEECH_MODELS),
                    help=f"speech-to-text model for transcripts/captions (default {DEFAULT_SPEECH})")
-    m.add_argument("--speech-device", default="auto", choices=["auto", "cpu", "mps"],
-                   help="run speech on the Apple GPU (mps) or CPU (default auto)")
+    m.add_argument("--speech-device", default="auto", choices=["auto", "cpu", "mps", "cuda"],
+                   help="speech on the GPU (mps = Apple, cuda = NVIDIA) or CPU; auto picks the best (default)")
     m.add_argument("--judge", default=DEFAULT_JUDGE, choices=list(JUDGE_MODELS),
                    help="Claude model that picks, trims and titles clips, or 'none' (default %(default)s)")
     m.add_argument("--no-judge", action="store_true", help="same as --judge none")

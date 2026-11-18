@@ -6,7 +6,7 @@ from pathlib import Path
 from sources import Word
 
 _models: dict[str, object] = {}
-DEVICE = "auto"   # set by the CLI: auto | cpu | mps
+DEVICE = "auto"   # set by the CLI: auto | cpu | mps | cuda
 
 
 def transcribe(media: Path, model_size: str = "small", language: str | None = None) -> list[Word]:
@@ -35,11 +35,14 @@ def _load_audio(media: Path):
 
 
 def _load(WhisperModel, name: str):
-    """Apple-GPU (mps) when available and asked for, else CPU int8."""
-    if DEVICE in ("auto", "mps"):
+    """GPU when available (Apple 'mps' on macOS, NVIDIA 'cuda' elsewhere), else CPU int8."""
+    import sys
+    gpus = {"auto": ["mps"] if sys.platform == "darwin" else ["cuda"], "mps": ["mps"], "cuda": ["cuda"],
+            "cpu": []}[DEVICE]
+    for dev in gpus:
         try:
-            return WhisperModel(name, device="mps", compute_type="float16")
+            return WhisperModel(name, device=dev, compute_type="float16")
         except Exception:
-            if DEVICE == "mps":
+            if DEVICE == dev:
                 raise
     return WhisperModel(name, device="cpu", compute_type="int8")

@@ -11,9 +11,8 @@ import hinglish
 from picker import Clip
 from sources import YTDLP, Word, run
 
-FONT_CAPTION = "/System/Library/Fonts/Supplemental/Arial Black.ttf"
-FONT_HOOK = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
-FONT_DEVANAGARI = ("/System/Library/Fonts/Kohinoor.ttc", 3)  # Kohinoor Devanagari Bold
+FONT_CAPTION = "caption"        # font roles, resolved per platform by platform_util.font()
+FONT_HOOK = "hook"
 HOOK_INTRO = False          # set by the CLI (--hook-intro): open with a teaser + hook line
 CAPTION_LANG = "hinglish"   # original | hinglish | english — set by the CLI (--captions)
 DEVANAGARI = re.compile(r"[ऀ-ॿ]")
@@ -34,13 +33,17 @@ def download_section(url: str, start: float, end: float, out: Path) -> Path:
 
 # ---------- caption images ----------
 
-def _font(path: str, size: int, text: str = "") -> ImageFont.FreeTypeFont:
+def _font(role: str, size: int, text: str = "") -> ImageFont.FreeTypeFont:
+    import platform_util
+    if DEVANAGARI.search(text):  # Hindi captions need a font with Devanagari glyphs
+        role = "devanagari"
+    found = platform_util.font(role)
     try:
-        if DEVANAGARI.search(text):  # Hindi captions need a font with Devanagari glyphs
-            return ImageFont.truetype(FONT_DEVANAGARI[0], size, index=FONT_DEVANAGARI[1])
-        return ImageFont.truetype(path, size)
+        if found:
+            return ImageFont.truetype(found[0], size, index=found[1])
     except OSError:
-        return ImageFont.load_default(size)
+        pass
+    return ImageFont.load_default(size)
 
 
 def _caption_png(text: str, width: int, path: Path, size: int) -> None:

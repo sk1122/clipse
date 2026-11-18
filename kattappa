@@ -1,4 +1,6 @@
 #!/bin/sh
 # kattappa — turn YouTube livestreams into viral clips. Run with no arguments for the TUI.
 DIR="$(cd "$(dirname "$0")" && pwd -P)"
-exec "$DIR/.venv/bin/python" "$DIR/clip.py" "$@"
+PY="$DIR/.venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3 || command -v python)"
+exec "$PY" "$DIR/clip.py" "$@"

@@ -4,18 +4,35 @@ Paste a YouTube link (live or finished) and get vertical, captioned short clips 
 
 ## Setup
 
-macOS with [Homebrew](https://brew.sh) and [uv](https://docs.astral.sh/uv/):
+Works on **macOS** and **Linux**. You need Python 3.12 and ffmpeg.
+
+**macOS** (with [Homebrew](https://brew.sh)):
 
 ```bash
 brew install ffmpeg
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -r requirements.txt
-cp .env.example .env        # then add your ANTHROPIC_API_KEY
+```
+
+**Linux** (Debian/Ubuntu; use your distro's package manager otherwise):
+
+```bash
+sudo apt install ffmpeg fonts-noto-core fonts-dejavu-core xdg-utils
+```
+
+`fonts-noto-core` provides the Devanagari font for Hindi captions. `xdg-utils` lets the TUI open clips and links.
+
+Then, on either system:
+
+```bash
+python3 -m venv .venv            # or: uv venv --python 3.12 .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env             # then add your ANTHROPIC_API_KEY
 ```
 
 Without an API key everything still runs, but clips are picked from the signals alone, with no AI judge, translation or hook lines.
 
-The first transcription downloads the speech model (about 1.6 GB for the default).
+The first transcription downloads the speech model (about 1.6 GB for the default). Speech runs on the GPU when one is available (Apple silicon on macOS, NVIDIA/CUDA on Linux) and on the CPU otherwise; `--speech-device` overrides this.
+
+Fonts are picked per system: Arial on macOS, and Noto or DejaVu on Linux (any installed font is found through fontconfig).
 
 ## Run it
 
@@ -38,7 +55,7 @@ Run the TUI in a normal terminal (Terminal, iTerm, …). Some embedded terminal 
 | `k` / `x` / `p` | mark a clip keep / reject / posted |
 | `h` | add a hook intro to the selected clip (adds a 🪝 version) |
 | `d` | delete a clip file (asks first) |
-| `y` / `f` | open that moment on YouTube / show the file in Finder |
+| `y` / `f` | open that moment on YouTube / show the file in its folder |
 | `s` | stop the selected job |
 | `q` | quit (jobs keep running in the background) |
 
@@ -83,6 +100,7 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `signals.py` | hype curve, candidate moments, chat spam filter |
 | `picker.py` | the AI judge, plus natural clip boundaries |
 | `transcribe.py` | speech-to-text (faster-whisper) |
+| `platform_util.py` | per-OS fonts and opening files/links |
 | `hinglish.py` | Hinglish transliteration and English translation of captions |
 | `render.py` | vertical render: blurred background, hook banner, captions, fade |
 | `hook.py` | hook intros (teaser cold-open + hook line) |

@@ -25,6 +25,7 @@ from textual.widgets import (Button, DataTable, Footer, Header, Input, Label, Pr
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "out"
 sys.path.insert(0, str(HERE))
+import platform_util  # noqa: E402
 from clip import DEFAULT_JUDGE, DEFAULT_SPEECH, JUDGE_MODELS, SPEECH_MODELS  # noqa: E402
 
 REVIEW_STATES = {"new": "·", "keep": "✓ keep", "reject": "✗ reject", "posted": "★ posted"}
@@ -188,7 +189,7 @@ class ClipperApp(App):
     """
     BINDINGS = [
         Binding("o", "open_clip", "Play"),
-        Binding("f", "reveal", "Finder"),
+        Binding("f", "reveal", "Show file"),
         Binding("k", "review('keep')", "Keep"),
         Binding("x", "review('reject')", "Reject"),
         Binding("p", "review('posted')", "Posted"),
@@ -503,7 +504,7 @@ class ClipperApp(App):
         cur = self.current_clip()
         f = cur and self._file(cur[1])
         if f:
-            subprocess.Popen(["open", str(f)])
+            platform_util.open_path(f)
         else:
             self.notify("No video for this row (judge skipped it, or it was deleted).", severity="warning")
 
@@ -511,7 +512,7 @@ class ClipperApp(App):
         cur = self.current_clip()
         f = cur and self._file(cur[1])
         j = self.jobs.get(self.selected or "")
-        subprocess.Popen(["open", "-R", str(f)] if f else ["open", str(j.folder)] if j else ["open", str(OUT)])
+        platform_util.open_path(f, reveal=True) if f else platform_util.open_path(j.folder if j else OUT)
 
     def action_review(self, state: str) -> None:
         cur = self.current_clip()
@@ -559,7 +560,7 @@ class ClipperApp(App):
         url = j.meta.get("url")
         if cur and cur[1].get("url"):
             url = cur[1]["url"]
-        subprocess.Popen(["open", url])
+        platform_util.open_path(url)
 
     def action_stop_job(self) -> None:
         j = self.jobs.get(self.selected or "")
