@@ -88,7 +88,6 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `hook.py` | hook intros (teaser cold-open + hook line) |
 | `progress.py` | `job.json` / `events.jsonl` progress events that the TUI follows |
 | `tui.py` | the terminal UI |
-| `launch/` | how the launch video was made: [VHS](https://github.com/charmbracelet/vhs) recording scripts, `edit.py` (zooms, cards, mix), `music.py` (synthesised soundtrack) |
 
 ## Output
 
