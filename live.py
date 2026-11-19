@@ -315,13 +315,14 @@ class Live:
         step = max(1, len(chat_sample) // 40)
         chat_sample = chat_sample[::step][:40]
         chat_summary = _reaction_tally([m for m in self.chat if peak - 25 <= m.t <= peak + 15])
+        frames = screenshots(win, moment - t0, win_len)
 
         clip, skipped = None, None
         if not self.a.no_ai:
             try:
                 clip, why = picker.judge_live(transcript, chat_sample, win_len, peak - t0,
                                               self.info.get("title", ""), self.a.min_len, self.a.max_len,
-                                              self.a.judge, chat_summary)
+                                              self.a.judge, chat_summary, frames)
                 if clip is None:
                     print(f"    Claude would skip it: {why}")
                     skipped = why
@@ -463,6 +464,20 @@ REACTIONS = {
     "shock (no way / what)": re.compile(r"\b(no way|what+|bro+|omg|wtf|chat is this real|real)\b", re.I),
     "aura": re.compile(r"aura", re.I),
 }
+
+
+def screenshots(video: Path, moment: float, length: float, offsets=(-10, -5, -2, 1, 4, 8),
+                width: int = 768) -> list[tuple[float, bytes]]:
+    """Small JPEG frames around a moment (seconds into `video`), for the judge to look at."""
+    out = []
+    for off in offsets:
+        t = min(max(0.0, moment + off), max(0.0, length - 0.5))
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", str(video), "-frames:v", "1",
+                            "-vf", f"scale={width}:-2", "-q:v", "5", "-f", "image2", "-c:v", "mjpeg", "-"],
+                           capture_output=True, timeout=30)
+        if r.returncode == 0 and r.stdout:
+            out.append((t, r.stdout))
+    return out
 
 
 def _reaction_tally(msgs) -> str:

@@ -205,7 +205,13 @@ a loss, a cringe moment) — L moments make great funny clips. 💀 😭 😂 LM
 "aura", "+1000 aura" = impressive; "-1000 aura" = embarrassing. "chat is this real", "NO WAY", "bro" spam \
 = shock. When chat floods with these, find what the streamer did or said in the seconds just before the \
 wave and judge THAT moment; a short, punchy moment with a big chat reaction is usually worth posting even \
-if the transcript is rough (speech recognition is unreliable over game audio)."""
+if the transcript is rough (speech recognition is unreliable over game audio).
+
+The transcript is ONE mixed soundtrack: the streamer's own voice AND the game's characters / cutscenes / \
+music are all in it, unlabelled. Lines that sound like scripted NPC dialogue are probably the game; short \
+shouts, repeated words ("NO NO NO", "chat!", "bro") and talking to chat are the streamer. When screenshots \
+are attached (spread across the window, timestamped), use them to see what actually happened in the game \
+and how the streamer reacted on their webcam — they matter more than the transcript."""
 
 
 LIVE_SYSTEM = SYSTEM.split("For each clip")[0] + """You are watching a stream LIVE. Chat just spiked; \
@@ -221,9 +227,22 @@ setup (no dead air, no mid-word start), end once the payoff/reaction has fully l
 {lang_note}"""
 
 
+def _with_frames(text: str, frames: list[tuple[float, bytes]] | None):
+    """Message content: the text, then the screenshots, each labelled with its time in the window."""
+    if not frames:
+        return text
+    import base64
+    content = [{"type": "text", "text": text + "\n\nScreenshots from the window (gameplay + webcam):"}]
+    for t, jpg in frames:
+        content.append({"type": "text", "text": f"[{t:.0f}s]"})
+        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                     "data": base64.b64encode(jpg).decode()}})
+    return content
+
+
 def judge_live(transcript: str, chat_sample: list[str], window_len: float, peak_at: float,
                stream_title: str, min_len: int, max_len: int, model: str,
-               chat_summary: str = "") -> tuple[Clip | None, str]:
+               chat_summary: str = "", frames: list[tuple[float, bytes]] | None = None) -> tuple[Clip | None, str]:
     """Returns (Clip on the window timeline or None if Claude says skip, Claude's reason).
     Raises if Claude is unavailable."""
     import anthropic
@@ -235,7 +254,7 @@ def judge_live(transcript: str, chat_sample: list[str], window_len: float, peak_
         model=model, max_tokens=16000,
         system=LIVE_SYSTEM.format(win=window_len, peak=peak_at, min_len=min_len, max_len=max_len,
                                  lang_note=LANG_NOTES[CAPTION_LANG]),
-        messages=[{"role": "user", "content": user}],
+        messages=[{"role": "user", "content": _with_frames(user, frames)}],
         output_config={"effort": "medium"}, output_format=LiveVerdict,
         **_fallback_args(model),
     )
