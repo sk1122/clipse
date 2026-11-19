@@ -118,6 +118,29 @@ def caption(meta: dict, source_url: str | None) -> str:
     return "\n".join(lines).strip()[:2100]          # Instagram's caption limit is 2,200 characters
 
 
+def _upload_once(uid: str, f: Path, text: str, share_to_feed: bool, log) -> str:
+    """Create a Reel container, send the file, wait until Instagram has processed it. Returns the container id."""
+    container = _post(f"{API_VERSION}/{uid}/media", media_type="REELS", upload_type="resumable",
+                      caption=text, share_to_feed=str(share_to_feed).lower())
+    cid = container["id"]
+    size = f.stat().st_size
+    with open(f, "rb") as fh:
+        r = requests.post(f"{RUPLOAD}/{cid}", data=fh, timeout=600,
+                          headers={"Authorization": f"OAuth {_token()}", "offset": "0", "file_size": str(size)})
+    if r.status_code >= 300:
+        raise RuntimeError(f"upload failed ({r.status_code}): {r.text[:200]}")
+    log(f"    uploaded {size / 1e6:.1f} MB, Instagram is processing…")
+    for _ in range(90):                      # up to ~7.5 minutes
+        st = _get(f"{API_VERSION}/{cid}", fields="status_code,status")
+        code = st.get("status_code")
+        if code == "FINISHED":
+            return cid
+        if code in ("ERROR", "EXPIRED"):
+            raise RuntimeError(f"Instagram couldn't process the video: {st.get('status')}")
+        time.sleep(5)
+    raise RuntimeError("Instagram was still processing after 7 minutes")
+
+
 def upload(clip: Path, meta: dict, source_url: str | None = None, force: bool = False, log=print,
            video: Path | None = None, speed: float = 1.0, share_to_feed: bool = True) -> dict:
     """Publish one clip as a Reel. PUBLIC immediately. Skips clips already posted unless force=True."""
@@ -127,29 +150,18 @@ def upload(clip: Path, meta: dict, source_url: str | None = None, force: bool = 
         return prev
     uid = user_id()
     f = Path(video or clip)
-    # 1. create a Reel container that expects a resumable upload
-    container = _post(f"{API_VERSION}/{uid}/media", media_type="REELS", upload_type="resumable",
-                      caption=caption(meta, source_url), share_to_feed=str(share_to_feed).lower())
-    cid = container["id"]
-    # 2. send the file straight from this machine
-    size = f.stat().st_size
-    with open(f, "rb") as fh:
-        r = requests.post(f"{RUPLOAD}/{cid}", data=fh, timeout=600,
-                          headers={"Authorization": f"OAuth {_token()}", "offset": "0", "file_size": str(size)})
-    if r.status_code >= 300:
-        raise RuntimeError(f"Instagram upload failed ({r.status_code}): {r.text[:300]}")
-    log(f"    uploaded {size / 1e6:.1f} MB, Instagram is processing…")
-    # 3. wait for Instagram to process the video
-    for _ in range(90):                      # up to ~7.5 minutes
-        st = _get(f"{API_VERSION}/{cid}", fields="status_code,status")
-        code = st.get("status_code")
-        if code == "FINISHED":
+    cid, last = None, None
+    for attempt in range(1, 4):              # Meta's upload server fails now and then; a fresh container usually works
+        try:
+            cid = _upload_once(uid, f, caption(meta, source_url), share_to_feed, log)
             break
-        if code in ("ERROR", "EXPIRED"):
-            raise RuntimeError(f"Instagram couldn't process the video: {st.get('status')}")
-        time.sleep(5)
-    else:
-        raise RuntimeError("Instagram is still processing after 7 minutes — try `clipse post` again later.")
+        except RuntimeError as e:
+            last = e
+            if attempt < 3:
+                log(f"    Instagram upload failed ({str(e)[:120]}) — retrying in {15 * attempt}s ({attempt}/3)…")
+                time.sleep(15 * attempt)
+    if cid is None:
+        raise last
     # 4. publish
     media_id = _post(f"{API_VERSION}/{uid}/media_publish", creation_id=cid)["id"]
     link = _get(f"{API_VERSION}/{media_id}", fields="permalink").get("permalink")
