@@ -162,8 +162,20 @@ def normalise(a) -> None:
     a.no_ai = a.judge == "none"
 
 
+def _stop_signals() -> None:
+    """Treat Ctrl-C and `kill` the same: stop cleanly (finish uploads, delete the recording buffer).
+    Background launches can start with Ctrl-C ignored, so reinstate it too."""
+    import signal
+
+    def stop(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, stop)
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
+    _stop_signals()
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
         argv = ["tui"]
