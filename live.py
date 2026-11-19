@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import re
 import os
 import shutil
 import signal
@@ -313,13 +314,14 @@ class Live:
         chat_sample = [f"[{m.t - t0:5.1f}s] {m.text[:80]}" for m in self.chat if a - 10 <= m.t <= b]
         step = max(1, len(chat_sample) // 40)
         chat_sample = chat_sample[::step][:40]
+        chat_summary = _reaction_tally([m for m in self.chat if peak - 25 <= m.t <= peak + 15])
 
         clip, skipped = None, None
         if not self.a.no_ai:
             try:
                 clip, why = picker.judge_live(transcript, chat_sample, win_len, peak - t0,
                                               self.info.get("title", ""), self.a.min_len, self.a.max_len,
-                                              self.a.judge)
+                                              self.a.judge, chat_summary)
                 if clip is None:
                     print(f"    Claude would skip it: {why}")
                     skipped = why
@@ -452,6 +454,32 @@ class Live:
         print(f"Made {self.made} clips → {self.out}")
         progress.emit("done", clips=self.made, part="live")
         return 0
+
+
+REACTIONS = {
+    "W (good)": re.compile(r"^\W*(w+|dub|big w|massive w|huge w)\W*$", re.I),
+    "L (bad)": re.compile(r"^\W*(l+|ratio|big l|massive l|huge l|take the l)\W*$", re.I),
+    "laughing (💀😭😂 / LMAO)": re.compile(r"💀|😭|😂|🤣|\b(lmao+|lmfao|lol+|haha+|xd)\b", re.I),
+    "shock (no way / what)": re.compile(r"\b(no way|what+|bro+|omg|wtf|chat is this real|real)\b", re.I),
+    "aura": re.compile(r"aura", re.I),
+}
+
+
+def _reaction_tally(msgs) -> str:
+    """How chat reacted around the spike: counts of W, L, laughing, shock, plus the most repeated messages."""
+    from collections import Counter
+    if not msgs:
+        return ""
+    counts = Counter()
+    for m in msgs:
+        for name, rx in REACTIONS.items():
+            if rx.search(m.text):
+                counts[name] += 1
+    top = Counter(re.sub(r"\s+", " ", m.text.strip().lower())[:30] for m in msgs).most_common(6)
+    lines = [f"{len(msgs)} messages around the spike"]
+    lines += [f"{name}: {n}" for name, n in counts.most_common() if n]
+    lines.append("most repeated: " + ", ".join(f'"{t}" ×{n}' for t, n in top if n > 1))
+    return "\n".join(lines)
 
 
 def _lines(words: list[sources.Word]) -> str:

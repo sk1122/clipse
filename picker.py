@@ -198,10 +198,22 @@ class LiveVerdict(BaseModel):
                                        "or most surprising word, never a filler word")
 
 
+CHAT_SLANG = """How to read stream chat: a sudden wave of the same short reaction IS the signal that something \
+just happened on stream, not spam. W / WW / "dub" = chat thinks the streamer just did something great \
+(a win, a clutch play, a funny line). L / LL / "ratio" = something bad or embarrassing (a fail, a death, \
+a loss, a cringe moment) — L moments make great funny clips. 💀 😭 😂 LMAO LOL = something funny. \
+"aura", "+1000 aura" = impressive; "-1000 aura" = embarrassing. "chat is this real", "NO WAY", "bro" spam \
+= shock. When chat floods with these, find what the streamer did or said in the seconds just before the \
+wave and judge THAT moment; a short, punchy moment with a big chat reaction is usually worth posting even \
+if the transcript is rough (speech recognition is unreliable over game audio)."""
+
+
 LIVE_SYSTEM = SYSTEM.split("For each clip")[0] + """You are watching a stream LIVE. Chat just spiked; \
 you get a ~{win:.0f}s recording window around it: the transcript (timestamps in seconds from the \
 window start) and chat messages. The chat spike peaked about {peak:.0f}s into the window — the \
 moment that caused it is usually a few seconds before that.
+
+""" + CHAT_SLANG + """
 
 Decide if it's worth posting. If yes, choose start/end inside the window: start right before the \
 setup (no dead air, no mid-word start), end once the payoff/reaction has fully landed and the sentence is finished — never mid-sentence. {min_len}-{max_len}s long; slightly longer and complete beats cut off.
@@ -210,13 +222,15 @@ setup (no dead air, no mid-word start), end once the payoff/reaction has fully l
 
 
 def judge_live(transcript: str, chat_sample: list[str], window_len: float, peak_at: float,
-               stream_title: str, min_len: int, max_len: int, model: str) -> tuple[Clip | None, str]:
+               stream_title: str, min_len: int, max_len: int, model: str,
+               chat_summary: str = "") -> tuple[Clip | None, str]:
     """Returns (Clip on the window timeline or None if Claude says skip, Claude's reason).
     Raises if Claude is unavailable."""
     import anthropic
 
     user = (f"Stream: {stream_title}\n\n<transcript>\n{transcript or '(no speech detected)'}\n</transcript>\n\n"
-            "<chat>\n" + "\n".join(chat_sample) + "\n</chat>")
+            + (f"<chat_reaction_tally>\n{chat_summary}\n</chat_reaction_tally>\n\n" if chat_summary else "")
+            + "<chat>\n" + "\n".join(chat_sample) + "\n</chat>")
     resp = anthropic.Anthropic().beta.messages.parse(
         model=model, max_tokens=16000,
         system=LIVE_SYSTEM.format(win=window_len, peak=peak_at, min_len=min_len, max_len=max_len,

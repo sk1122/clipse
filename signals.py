@@ -12,7 +12,7 @@ BUCKET = 5.0          # seconds per bucket
 CHAT_LAG = 8.0        # chat reacts a few seconds after the moment happens
 HYPE = re.compile(
     r"(lmao|lmfao|lol+|kek|omg|wtf|no way|clip (it|that)|\bclip\b|insane|crazy|holy|bruh|"
-    r"\bw+\b|\bl+\b|😂|🤣|💀|😭|🔥|‼|!!+|\?\?+)", re.I)
+    r"\bw+\b|\bl+\b|\bdub\b|\bratio\b|aura|😂|🤣|💀|😭|🔥|‼|!!+|\?\?+)", re.I)
 
 
 @dataclass
