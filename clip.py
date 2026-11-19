@@ -74,6 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--privacy", default="private", choices=["private", "unlisted", "public"],
                     help="visibility on YouTube (default private: you publish in YouTube Studio)")
     po.add_argument("--max", type=int, default=5, help="max uploads per day (default 5)")
+    po.add_argument("--speed", type=float, default=1.0,
+                    help="upload a sped-up copy, e.g. 1.5 or 2 (voice pitch kept; your original clip is untouched)")
     po.add_argument("--dry-run", action="store_true", help="show what would be uploaded, upload nothing")
     po.add_argument("--force", action="store_true", help="upload even if this clip was uploaded before")
     r = sub.add_parser("run", help="clip a YouTube stream or video")
@@ -97,6 +99,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="caption + hook language: hinglish (Hindi in Roman script; English stays English), "
                         "english (translated if needed), original/hindi (as spoken — Devanagari for Hindi). "
                         "Default hinglish")
+    c.add_argument("--speed", type=float, default=1.0,
+                   help="play every clip faster, e.g. 1.5 or 2 (voice pitch is kept). Default 1")
     c.add_argument("--hook-intro", action="store_true",
                    help="open every clip with its best 2.5 s and a hook line, then the full clip")
     c.add_argument("--no-captions", action="store_true")
@@ -214,11 +218,17 @@ def run_post(a) -> int:
         if src and e.get("start") is not None and e.get("part") != "live":
             src = f"https://youtu.be/{j.get('id')}?t={int(e['start'])}"
         md = youtube.metadata(e, src)
-        print(f"• {f.name}\n    title: {md['title']}\n    visibility: {a.privacy}")
+        sp = f"  ·  speed {a.speed:g}x" if a.speed != 1 else ""
+        print(f"• {f.name}\n    title: {md['title']}\n    visibility: {a.privacy}{sp}")
         if a.dry_run:
             continue
         try:
-            youtube.upload(f, e, src, a.privacy, force=a.force)
+            video = None
+            if a.speed != 1:
+                import speed
+                print(f"    speeding up to {a.speed:g}x…")
+                video = speed.speedup(f, a.speed)
+            youtube.upload(f, e, src, a.privacy, force=a.force, video=video, speed=a.speed)
         except youtube.NotConnected as err:
             print(err)
             return 1
@@ -258,6 +268,7 @@ def run(a) -> int:
         a.captions = "original"
     render.CAPTION_LANG = picker.CAPTION_LANG = a.captions
     render.HOOK_INTRO = a.hook_intro
+    render.SPEED = a.speed
     hinglish.MODEL = None if a.no_ai else a.judge
     if not a.no_ai and not os.environ.get("ANTHROPIC_API_KEY"):
         print("Note: no ANTHROPIC_API_KEY (put it in clipper/.env) — running without the judge.")
@@ -276,7 +287,7 @@ def run(a) -> int:
     info = sources.fetch_info(a.url, tmp)
     out_dir = out_root / info["id"]
     is_live = info.get("is_live") or info.get("live_status") == "is_live"
-    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "hook_intro", "clips", "sensitivity", "min_len",
+    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "hook_intro", "speed", "clips", "sensitivity", "min_len",
                                            "max_len", "landscape", "no_from_start", "duration")}
     progress.setup(out_dir, a.url, info, "live" if is_live else "vod", settings)
     (tmp / "info.json").unlink(missing_ok=True)

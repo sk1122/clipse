@@ -98,9 +98,9 @@ def uploads_today() -> int:
     return sum(1 for p in _posts().values() if p.get("at", "").startswith(today))
 
 
-def _record(clip: Path, video_id: str, privacy: str) -> dict:
+def _record(clip: Path, video_id: str, privacy: str, speed: float = 1.0) -> dict:
     CONFIG.mkdir(parents=True, exist_ok=True)
-    rec = {"id": video_id, "url": f"https://youtube.com/shorts/{video_id}", "privacy": privacy,
+    rec = {"id": video_id, "url": f"https://youtube.com/shorts/{video_id}", "privacy": privacy, "speed": speed,
            "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     allp = _posts()
     allp[str(Path(clip).resolve())] = rec
@@ -123,7 +123,7 @@ def metadata(meta: dict, source_url: str | None, shorts_tag: bool = True) -> dic
 
 
 def upload(clip: Path, meta: dict, source_url: str | None = None, privacy: str = "private",
-           force: bool = False, log=print) -> dict:
+           force: bool = False, log=print, video: Path | None = None, speed: float = 1.0) -> dict:
     """Upload one clip. Skips clips already uploaded unless force=True. Returns the post record."""
     from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaFileUpload
@@ -134,7 +134,7 @@ def upload(clip: Path, meta: dict, source_url: str | None = None, privacy: str =
     md = metadata(meta, source_url)
     body = {"snippet": {**md, "categoryId": GAMING},
             "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False}}
-    media = MediaFileUpload(str(clip), mimetype="video/mp4", resumable=True, chunksize=8 * 1024 * 1024)
+    media = MediaFileUpload(str(video or clip), mimetype="video/mp4", resumable=True, chunksize=8 * 1024 * 1024)
     req = _api().videos().insert(part="snippet,status", body=body, media_body=media)
     resp, tries = None, 0
     while resp is None:
@@ -150,6 +150,6 @@ def upload(clip: Path, meta: dict, source_url: str | None = None, privacy: str =
             if e.resp.status == 403 and b"quota" in (e.content or b"").lower():
                 raise RuntimeError("YouTube's daily upload quota is used up — try again tomorrow.") from e
             raise
-    rec = _record(clip, resp["id"], resp.get("status", {}).get("privacyStatus", privacy))
+    rec = _record(clip, resp["id"], resp.get("status", {}).get("privacyStatus", privacy), speed)
     log(f"    ✓ uploaded ({rec['privacy']}): {rec['url']}")
     return rec

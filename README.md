@@ -71,6 +71,7 @@ The TUI offers the same choices next to the link box.
 | `--speech-model` | tiny, base, small, medium, large-v3-turbo, large-v3 | large-v3-turbo |
 | `--judge` | claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-fable-5-2, none | claude-opus-5-5 |
 | `--captions` | hinglish (Hindi in Roman script), english (translated if needed), original (as spoken; `hindi` = Devanagari) | hinglish |
+| `--speed` | play every clip faster, e.g. `1.5` or `2`; the voice keeps its normal pitch | 1 |
 | `--hook-intro` | open each clip with its best 2.5 s and a hook line, then the full clip | off |
 | `--clips` | clips from a finished stream, or from the already-aired part of a live one | 5 |
 | `--sensitivity` | live spike score needed to clip; give several (`2,2.2,2.5`) to compare them in one run | 2.5 |
@@ -95,9 +96,10 @@ The sign-in token is saved in `~/.config/clipse/` and stays on your machine.
 ./clipse post --auto                   # upload every clip you marked keep (k) that isn't uploaded yet
 ./clipse post --auto --min-score 8     # …plus clips the judge rated 8/10 or higher
 ./clipse post --auto --dry-run         # preview without uploading
+./clipse post --auto --speed 2         # upload 2x-speed copies (your original clips are untouched)
 ```
 
-In the TUI, `u` uploads the selected clip, and uploaded clips show `▶yt`.
+In the TUI, `u` uploads the selected clip at the speed picked in the **speed** box, and uploaded clips show `▶yt`.
 
 | Flag | Default |
 |---|---|
@@ -136,6 +138,7 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `hinglish.py` | Hinglish transliteration and English translation of captions |
 | `render.py` | vertical render: blurred background, hook banner, captions, fade |
 | `hook.py` | hook intros (teaser cold-open + hook line) |
+| `speed.py` | speeding clips up with the voice pitch kept |
 | `youtube.py` | YouTube sign-in and Shorts uploads |
 | `progress.py` | `job.json` / `events.jsonl` progress events that the TUI follows |
 | `tui.py` | the terminal UI |

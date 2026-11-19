@@ -13,6 +13,7 @@ from sources import YTDLP, Word, run
 
 FONT_CAPTION = "caption"        # font roles, resolved per platform by platform_util.font()
 FONT_HOOK = "hook"
+SPEED = 1.0                # set by the CLI (--speed): play every clip faster, voice pitch kept
 HOOK_INTRO = False          # set by the CLI (--hook-intro): open with a teaser + hook line
 CAPTION_LANG = "hinglish"   # original | hinglish | english — set by the CLI (--captions)
 DEVANAGARI = re.compile(r"[ऀ-ॿ]")
@@ -247,4 +248,8 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
         hooked = hook.add_hook_intro(out, meta={"title": clip.title, "hook": clip.hook, "why": clip.why},
                                      model=hinglish.MODEL)
         hooked.replace(out)          # the hooked version becomes the clip
+    if abs(SPEED - 1.0) > 1e-3:
+        import speed
+        fast = speed.speedup(out, SPEED)
+        fast.replace(out)            # the sped-up version becomes the clip
     return out

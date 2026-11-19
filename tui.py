@@ -182,7 +182,7 @@ class ClipperApp(App):
     #newjob { height: auto; padding: 0 1; border: round $primary; }
     #newjob .row { height: auto; }
     #newjob Input#url { width: 1fr; }
-    #newjob Select { width: 22; }
+    #newjob Select { width: 20; }
     #newjob Input.small { width: 9; }
     #newjob .lbl { padding: 1 0 0 1; color: $text-muted; }
     #newjob Button { margin-left: 1; }
@@ -240,6 +240,9 @@ class ClipperApp(App):
                 yield Select([("Hinglish", "hinglish"), ("English", "english"),
                               ("As spoken", "original")], value="hinglish", allow_blank=False,
                              id="captions", tooltip="Caption + hook language")
+                yield Label("speed", classes="lbl")
+                yield Select([("1x", "1"), ("1.25x", "1.25"), ("1.5x", "1.5"), ("2x", "2")], value="1",
+                             allow_blank=False, id="speed", tooltip="Play clips faster (voice pitch kept); also used by u")
                 yield Label("intro", classes="lbl")
                 yield Select([("no hook intro", "none"), ("hook intro", "teaser")], value="none",
                              allow_blank=False, id="intro", tooltip="Open each clip with its best moment + a hook line")
@@ -287,6 +290,7 @@ class ClipperApp(App):
                "--judge", str(self.query_one("#judge", Select).value),
                "--captions", str(self.query_one("#captions", Select).value),
                *(["--hook-intro"] if self.query_one("#intro", Select).value == "teaser" else []),
+               "--speed", str(self.query_one("#speed", Select).value),
                "--clips", self.query_one("#nclips", Input).value.strip() or "5",
                "--sensitivity", self.query_one("#sens", Input).value.strip() or "2.5"]
         logs = OUT / "_logs"
@@ -564,10 +568,11 @@ class ClipperApp(App):
             return
         logs = OUT / "_logs"
         logs.mkdir(parents=True, exist_ok=True)
-        subprocess.Popen([sys.executable, str(HERE / "clip.py"), "post", str(f)],
+        sp = str(self.query_one("#speed", Select).value)
+        subprocess.Popen([sys.executable, str(HERE / "clip.py"), "post", str(f), "--speed", sp],
                          stdout=open(logs / f"upload-{time.strftime('%H%M%S')}.log", "w"), stderr=subprocess.STDOUT,
                          stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(HERE))
-        self.notify("Uploading to YouTube as private — publish it in YouTube Studio.", title="Upload")
+        self.notify(f"Uploading at {sp}x to YouTube as private — publish it in YouTube Studio.", title="Upload")
 
     def action_hook_clip(self) -> None:
         cur = self.current_clip()
