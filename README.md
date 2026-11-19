@@ -112,6 +112,30 @@ Each upload gets the judge's title plus `#Shorts`, the hook, and a "Clipped from
 - **Uploads stay private until Google audits your project.** Google keeps uploads from unaudited API projects private no matter what you choose. Publish them in Studio, or apply for Google's free API audit.
 - **Daily quota:** the free API quota allows only a handful of uploads a day.
 
+## Posting to Instagram
+
+clipse can publish clips as Reels through the official Instagram API. It's free, and the video goes straight from your machine, so no hosting is needed. You set it up once:
+
+1. Make your Instagram account a **Creator** or **Business** account (Instagram app → Settings → Account type and tools).
+2. At [developers.facebook.com](https://developers.facebook.com), create an app and pick the use case **Manage messaging & content on Instagram**.
+3. **Use cases → Customize → Permissions and features:** add `instagram_business_basic` and `instagram_business_content_publish`.
+4. **API setup:** create the login configuration.
+5. **App roles → Roles:** add your account as an **Instagram Tester**, and accept the invite in Instagram (Settings → Website permissions → Apps and websites → Tester invites).
+6. Under **Generate access tokens**, click **Generate token** for your account. Add the token to `.env`, plus your account's numeric ID (shown next to it):
+   ```
+   INSTAGRAM_ACCESS_TOKEN=...
+   INSTAGRAM_USER_ID=...
+   ```
+7. Run `./clipse connect instagram` to check it.
+
+```bash
+./clipse post <clip.mp4> --to instagram             # one clip
+./clipse post --auto --to instagram                 # every clip you marked keep (k) not posted yet
+./clipse post --auto --to both --speed 1.5          # YouTube and Instagram, at 1.5x
+```
+
+**Reels are public as soon as they're posted;** Instagram has no private uploads. So `--auto` only posts clips you marked **keep**, never clips chosen by judge score alone. Instagram allows 100 API posts per account per day.
+
 ## How it works
 
 - **Live:**
@@ -140,6 +164,7 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `hook.py` | hook intros (teaser cold-open + hook line) |
 | `speed.py` | speeding clips up with the voice pitch kept |
 | `youtube.py` | YouTube sign-in and Shorts uploads |
+| `instagram.py` | Instagram Reels publishing |
 | `progress.py` | `job.json` / `events.jsonl` progress events that the TUI follows |
 | `tui.py` | the terminal UI |
 
@@ -165,7 +190,7 @@ Not affiliated with or endorsed by YouTube, Google, Anthropic, or any creator.
 
 ## Notes
 
-- **Posting other people's streams:** even private uploads can get Content ID claims, and public ones can get copyright strikes (three strikes and the channel is removed). Only post clips you have rights to.
+- **Posting other people's streams:** even private uploads can get Content ID claims, and public ones can get copyright strikes (three strikes and the channel is removed). Instagram can remove reposted content and restrict accounts that get repeated reports. Only post clips you have rights to.
 - **API cost:** live mode calls the judge model on every spike that passes the threshold. Choose a cheaper judge, or raise `--sensitivity`, for long streams.
 
 ## License

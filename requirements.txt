@@ -7,3 +7,4 @@ numpy==2.5.5
 textual==8.2.8
 google-api-python-client==2.202.0
 google-auth-oauthlib==1.5.0
+requests==2.34.2

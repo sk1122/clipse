@@ -64,9 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
     hk.add_argument("--judge", default=DEFAULT_JUDGE, choices=list(JUDGE_MODELS))
     hk.add_argument("--record", action="store_true", help=argparse.SUPPRESS)   # used by the TUI
     cn = sub.add_parser("connect", help="sign in to a platform for posting (youtube)")
-    cn.add_argument("platform", choices=["youtube"])
-    po = sub.add_parser("post", help="upload clips to YouTube as Shorts")
+    cn.add_argument("platform", choices=["youtube", "instagram"])
+    po = sub.add_parser("post", help="upload clips to YouTube (Shorts) and/or Instagram (Reels)")
     po.add_argument("clips", nargs="*", help="clip files (or use --auto)")
+    po.add_argument("--to", default="youtube", choices=["youtube", "instagram", "both"],
+                    help="where to post (default youtube). Instagram Reels are public immediately")
     po.add_argument("--auto", action="store_true",
                     help="upload every clip marked keep in the TUI (or scoring --min-score) not yet uploaded")
     po.add_argument("--min-score", type=int, default=0,
@@ -152,6 +154,15 @@ def main(argv: list[str] | None = None) -> int:
         tui.main()
         return 0
     if a.cmd == "connect":
+        if a.platform == "instagram":
+            import instagram
+            try:
+                me = instagram.account()
+                print(f"✓ Instagram token works: @{me.get('username')}")
+                return 0
+            except (instagram.NotConnected, RuntimeError) as e:
+                print(e)
+                return 1
         import youtube
         try:
             print(f"✓ Connected to YouTube channel: {youtube.connect()}")
@@ -194,47 +205,68 @@ def clip_index() -> list[tuple[Path, dict, dict]]:
 
 
 def run_post(a) -> int:
+    import instagram
     import youtube
+    platforms = ["youtube", "instagram"] if a.to == "both" else [a.to]
+    mods = {"youtube": youtube, "instagram": instagram}
     index = {f.resolve(): (e, j) for f, e, j in clip_index()}
-    if a.auto:
-        todo = [(f, e, j) for f, (e, j) in index.items()
-                if not e.get("skipped") and j["review"] != "reject" and not youtube.posted(f)
-                and (j["review"] == "keep" or (a.min_score and (e.get("virality") or 0) >= a.min_score))]
-    else:
-        if not a.clips:
-            print("Give clip files, or --auto.")
-            return 1
+    if a.clips:
         todo = []
         for c in a.clips:
             f = Path(c).resolve()
             e, j = index.get(f, ({"title": f.stem.replace("_", " ")}, {}))
             todo.append((f, e, j))
-    if not todo:
-        print("Nothing to upload (mark clips with k in the TUI, or use --min-score).")
-        return 0
-    left = max(0, a.max - (youtube.uploads_today() if not a.dry_run and youtube.connected() else 0))
-    for f, e, j in todo[:left] if not a.force else todo:
-        src = j.get("url")
-        if src and e.get("start") is not None and e.get("part") != "live":
-            src = f"https://youtu.be/{j.get('id')}?t={int(e['start'])}"
-        md = youtube.metadata(e, src)
-        sp = f"  ·  speed {a.speed:g}x" if a.speed != 1 else ""
-        print(f"• {f.name}\n    title: {md['title']}\n    visibility: {a.privacy}{sp}")
-        if a.dry_run:
+    elif not a.auto:
+        print("Give clip files, or --auto.")
+        return 1
+    rc = 0
+    for plat in platforms:
+        mod = mods[plat]
+        if a.auto:
+            # Instagram posts are public at once, so it only takes clips you marked keep, never by score alone
+            by_score = a.min_score if plat == "youtube" else 0
+            todo = [(f, e, j) for f, (e, j) in index.items()
+                    if not e.get("skipped") and j["review"] != "reject" and not mod.posted(f)
+                    and (j["review"] == "keep" or (by_score and (e.get("virality") or 0) >= by_score))]
+        print(f"── {plat} ──")
+        if not todo:
+            print("Nothing to upload (mark clips with k in the TUI" + (", or use --min-score)." if plat == "youtube" else ")."))
             continue
-        try:
-            video = None
-            if a.speed != 1:
-                import speed
-                print(f"    speeding up to {a.speed:g}x…")
-                video = speed.speedup(f, a.speed)
-            youtube.upload(f, e, src, a.privacy, force=a.force, video=video, speed=a.speed)
-        except youtube.NotConnected as err:
-            print(err)
-            return 1
-    if len(todo) > left and not a.force:
-        print(f"Daily limit reached ({a.max}); {len(todo) - left} clip(s) left for tomorrow.")
-    return 0
+        done_today = 0
+        if not a.dry_run and mod.connected():
+            done_today = youtube.uploads_today() if plat == "youtube" else instagram.posts_today()
+        left = max(0, a.max - done_today)
+        for f, e, j in (todo if a.force else todo[:left]):
+            src = j.get("url")
+            if src and e.get("start") is not None and e.get("part") != "live":
+                src = f"https://youtu.be/{j.get('id')}?t={int(e['start'])}"
+            sp = f"  ·  speed {a.speed:g}x" if a.speed != 1 else ""
+            if plat == "youtube":
+                print(f"• {f.name}\n    title: {youtube.metadata(e, src)['title']}\n    visibility: {a.privacy}{sp}")
+            else:
+                print(f"• {f.name}\n    caption: {instagram.caption(e, src).splitlines()[0]}\n    visibility: PUBLIC (Reel){sp}")
+            if a.dry_run:
+                continue
+            try:
+                video = None
+                if a.speed != 1:
+                    import speed
+                    print(f"    speeding up to {a.speed:g}x…")
+                    video = speed.speedup(f, a.speed)
+                if plat == "youtube":
+                    youtube.upload(f, e, src, a.privacy, force=a.force, video=video, speed=a.speed)
+                else:
+                    instagram.upload(f, e, src, force=a.force, video=video, speed=a.speed)
+            except (youtube.NotConnected, instagram.NotConnected) as err:
+                print(err)
+                rc = 1
+                break
+            except RuntimeError as err:
+                print(f"    ✗ {err}")
+                rc = 1
+        if len(todo) > left and not a.force:
+            print(f"Daily limit reached ({a.max}); {len(todo) - left} clip(s) left for tomorrow.")
+    return rc
 
 
 def run_hook(a) -> int:
