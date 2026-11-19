@@ -128,11 +128,20 @@ class Live:
 
     def start(self) -> None:
         atexit.register(self.stop)
-        log = open(self.work / "procs.log", "a")
-        self._spawn(sources.YTDLP + ["--skip-download", "--write-subs", "--sub-langs", "live_chat",
-                                     "-o", str(self.chat_file), self.url], stdout=log, stderr=log)
-        self.log = log
+        self.log = open(self.work / "procs.log", "a")
+        self.start_chat()
         self.start_recorder()
+
+    def start_chat(self) -> None:
+        """(Re)start the live chat downloader on a clean slate. Leftover chat files from an earlier run would
+        make yt-dlp 'resume' them, decide the download is complete, and quit."""
+        for old in self.work.glob("chat.live_chat.json*"):
+            old.unlink(missing_ok=True)
+        self.chat_pos = 0
+        self.chat_proc = self._spawn(sources.YTDLP + ["--skip-download", "--write-subs", "--sub-langs", "live_chat",
+                                                      "--no-continue", "-o", str(self.chat_file), self.url],
+                                     stdout=self.log, stderr=self.log)
+        self.chat_started = time.time()
 
     def start_recorder(self) -> None:
         """YouTube live serves video and audio as separate HLS feeds: let ffmpeg read both and
@@ -403,6 +412,12 @@ class Live:
                 if self.free_gb() < MIN_FREE_GB:
                     print(f"Disk almost full ({self.free_gb():.1f} GB free) — stopping to protect your Mac.")
                     break
+                if self.chat_proc.poll() is not None and self.recorder.poll() is None:
+                    # chat downloader quit while the stream is still on: restart it (at most once a minute)
+                    if time.time() - self.chat_started > 60:
+                        print("  chat reader stopped — reconnecting...")
+                        progress.emit("chat_reconnect")
+                        self.start_chat()
                 if self.recorder.poll() is not None:
                     # feed URLs expire / connections drop on long streams: reconnect unless it keeps dying
                     if time.time() - self.recorder_started < 60:
