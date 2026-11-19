@@ -17,7 +17,8 @@ _worker: threading.Thread | None = None
 _cfg: dict = {}
 
 
-def start(platforms: list[str], info: dict, url: str, privacy: str = "private", max_per_day: int = 5) -> list[str]:
+def start(platforms: list[str], info: dict, url: str, privacy: str = "private", max_per_day: int = 5,
+          prof: dict | None = None) -> list[str]:
     """Begin auto-posting. Returns the platforms that are actually connected and will be used."""
     global _worker
     import instagram
@@ -34,7 +35,7 @@ def start(platforms: list[str], info: dict, url: str, privacy: str = "private", 
             usable.append(p)
     if not usable:
         return []
-    _cfg.update(platforms=usable, info=info, url=url, privacy=privacy, max_per_day=max_per_day)
+    _cfg.update(platforms=usable, info=info, url=url, privacy=privacy, max_per_day=max_per_day, prof=prof or {})
     progress.on_clip(_enqueue)
     _worker = threading.Thread(target=_run, daemon=True)
     _worker.start()
@@ -78,9 +79,9 @@ def _run() -> None:
                     continue
                 print(f"    [{p}] posting {f.name}…")
                 if p == "youtube":
-                    rec = youtube.upload(f, clip, _source(clip), _cfg["privacy"])
+                    rec = youtube.upload(f, clip, _source(clip), _cfg["privacy"], prof=_cfg["prof"])
                 else:
-                    rec = instagram.upload(f, clip, _source(clip))
+                    rec = instagram.upload(f, clip, _source(clip), prof=_cfg["prof"])
                 progress.emit("posted", platform=p, file=str(f), url=rec.get("url"),
                               privacy=rec.get("privacy", "public"))
             except youtube.LimitReached as e:

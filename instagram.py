@@ -110,11 +110,14 @@ def _record(clip: Path, media_id: str, permalink: str | None, speed: float) -> d
 
 # ---------------------------------------------------------------- caption + upload
 
-def caption(meta: dict, source_url: str | None) -> str:
+def caption(meta: dict, source_url: str | None, prof: dict | None = None) -> str:
+    import postprofile as profile
     lines = [meta.get("title") or "", "", meta.get("hook") or ""]
     if source_url:
         lines += ["", f"Clipped from: {source_url}"]
-    lines += ["", "#gaming #gta6 #streamhighlights #reels"]
+    lines += ["", profile.hashtags(prof or {}, meta) or "#gaming #streamhighlights #reels"]
+    if profile.keywords(prof or {}):
+        lines += ["", ", ".join(profile.keywords(prof))]
     return "\n".join(lines).strip()[:2100]          # Instagram's caption limit is 2,200 characters
 
 
@@ -142,7 +145,8 @@ def _upload_once(uid: str, f: Path, text: str, share_to_feed: bool, log) -> str:
 
 
 def upload(clip: Path, meta: dict, source_url: str | None = None, force: bool = False, log=print,
-           video: Path | None = None, speed: float = 1.0, share_to_feed: bool = True) -> dict:
+           video: Path | None = None, speed: float = 1.0, share_to_feed: bool = True,
+           prof: dict | None = None) -> dict:
     """Publish one clip as a Reel. PUBLIC immediately. Skips clips already posted unless force=True."""
     clip = Path(clip)
     if not force and (prev := posted(clip)):
@@ -153,7 +157,7 @@ def upload(clip: Path, meta: dict, source_url: str | None = None, force: bool = 
     cid, last = None, None
     for attempt in range(1, 4):              # Meta's upload server fails now and then; a fresh container usually works
         try:
-            cid = _upload_once(uid, f, caption(meta, source_url), share_to_feed, log)
+            cid = _upload_once(uid, f, caption(meta, source_url, prof), share_to_feed, log)
             break
         except RuntimeError as e:
             last = e

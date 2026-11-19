@@ -114,20 +114,26 @@ def _record(clip: Path, video_id: str, privacy: str, speed: float = 1.0) -> dict
 
 # ---------------------------------------------------------------- metadata + upload
 
-def metadata(meta: dict, source_url: str | None, shorts_tag: bool = True) -> dict:
+def metadata(meta: dict, source_url: str | None, shorts_tag: bool = True, prof: dict | None = None) -> dict:
+    import postprofile as profile
     title = (meta.get("title") or "Stream highlight").replace("<", "").replace(">", "")
     tag = " #Shorts" if shorts_tag and "#shorts" not in title.lower() else ""
     title = title[: 100 - len(tag)] + tag                  # YouTube's title limit is 100 characters
     lines = [meta.get("hook", "")]
     if source_url:
         lines += ["", f"Clipped from: {source_url}"]
-    lines += ["", "#Shorts #gaming" if shorts_tag else "#gaming", "", "Clipped with clipse"]
+    tags_line = profile.hashtags(prof or {}, meta) or "#gaming"
+    lines += ["", ("#Shorts " if shorts_tag else "") + tags_line]
+    if profile.keywords(prof or {}):
+        lines += ["", ", ".join(profile.keywords(prof))]
+    lines += ["", "Clipped with clipse"]
     return {"title": title, "description": "\n".join(l for l in lines if l is not None)[:4900],
-            "tags": ["shorts", "gaming", "stream highlights"]}
+            "tags": profile.youtube_tags(prof or {}, ["shorts", "gaming", "stream highlights"])}
 
 
 def upload(clip: Path, meta: dict, source_url: str | None = None, privacy: str = "private",
-           force: bool = False, log=print, video: Path | None = None, speed: float = 1.0) -> dict:
+           force: bool = False, log=print, video: Path | None = None, speed: float = 1.0,
+           prof: dict | None = None) -> dict:
     """Upload one clip. Skips clips already uploaded unless force=True. Returns the post record."""
     from googleapiclient.errors import HttpError, ResumableUploadError
     from googleapiclient.http import MediaFileUpload
@@ -135,7 +141,7 @@ def upload(clip: Path, meta: dict, source_url: str | None = None, privacy: str =
     if not force and (prev := posted(clip)):
         log(f"    already on YouTube: {prev['url']}")
         return prev
-    md = metadata(meta, source_url)
+    md = metadata(meta, source_url, prof=prof)
     body = {"snippet": {**md, "categoryId": GAMING},
             "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False}}
     media = MediaFileUpload(str(video or clip), mimetype="video/mp4", resumable=True, chunksize=8 * 1024 * 1024)

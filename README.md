@@ -113,6 +113,19 @@ The judge also picks which word of the hook to highlight.
 
 ## Posting to YouTube
 
+**Hashtags and keywords:** add a post profile, `--post-profile profiles/gta6.json` (or `--profile` with `clipse post`). It's a small JSON file with two hashtag sets and a keyword list:
+
+```json
+{
+  "hashtags": {"funny": "#GTA6 #GTAMemes ...", "highlight": "#GTA6 #GTA6Edits ..."},
+  "keywords": ["GTA 6 gameplay", "GTA 6 funny moments", "..."]
+}
+```
+
+- **Which hashtag set:** the judge labels each clip **funny** (fails, reactions, chaos) or **highlight** (cool, impressive or hype moments), and the matching set is used.
+- **Keywords:** they become YouTube tags, and go at the end of the description or caption on both platforms.
+- **Example:** see `profiles/gta6.json`.
+
 **Auto-post while clipping:** in the TUI, pick **post to** next to the link (or pass `--post-to youtube|instagram|both`), and every clip is uploaded as soon as it's made. Uploads run in the background, so they never slow down live clipping. The clip list marks posted clips with `▶yt` and `▶ig`, and the progress panel shows what's been posted. Connect each platform first (below).
 
 clipse can upload clips to your channel as Shorts through the official YouTube Data API. It's free, and you set it up once:
@@ -202,6 +215,7 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `youtube.py` | YouTube sign-in and Shorts uploads |
 | `instagram.py` | Instagram Reels publishing |
 | `autopost.py` | uploading clips in the background as a job makes them |
+| `postprofile.py` | hashtags and keywords per stream, picked by clip type |
 | `progress.py` | `job.json` / `events.jsonl` progress events that the TUI follows |
 | `tui.py` | the terminal UI |
 

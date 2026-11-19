@@ -78,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--max", type=int, default=5, help="max uploads per day (default 5)")
     po.add_argument("--speed", type=float, default=1.0,
                     help="upload a sped-up copy, e.g. 1.5 or 2 (voice pitch kept; your original clip is untouched)")
+    po.add_argument("--profile", help="JSON file with hashtags and keywords for captions (see profiles/)")
     po.add_argument("--dry-run", action="store_true", help="show what would be uploaded, upload nothing")
     po.add_argument("--force", action="store_true", help="upload even if this clip was uploaded before")
     r = sub.add_parser("run", help="clip a YouTube stream or video")
@@ -122,6 +123,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "Clips the judge skips are never posted")
     c.add_argument("--post-privacy", default="private", choices=["private", "unlisted", "public"],
                    help="YouTube visibility for auto-posted clips (default private)")
+    c.add_argument("--post-profile", help="JSON file with hashtags (funny / highlight) and keywords to add to "
+                   "captions, e.g. profiles/gta6.json")
     c.add_argument("--post-max", type=int, default=5, help="max auto-posts per platform per day (default 5)")
     c.add_argument("--speed", type=float, default=1.0,
                    help="play every clip faster, e.g. 1.5 or 2 (voice pitch is kept). Default 1")
@@ -240,7 +243,9 @@ def clip_index() -> list[tuple[Path, dict, dict]]:
 
 def run_post(a) -> int:
     import instagram
+    import postprofile as profile
     import youtube
+    prof = profile.load(a.profile)
     platforms = ["youtube", "instagram"] if a.to == "both" else [a.to]
     mods = {"youtube": youtube, "instagram": instagram}
     index = {f.resolve(): (e, j) for f, e, j in clip_index()}
@@ -276,9 +281,15 @@ def run_post(a) -> int:
                 src = f"https://youtu.be/{j.get('id')}?t={int(e['start'])}"
             sp = f"  ·  speed {a.speed:g}x" if a.speed != 1 else ""
             if plat == "youtube":
-                print(f"• {f.name}\n    title: {youtube.metadata(e, src)['title']}\n    visibility: {a.privacy}{sp}")
+                md = youtube.metadata(e, src, prof=prof)
+                print(f"• {f.name}  [{profile.kind(e)}]\n    title: {md['title']}\n    visibility: {a.privacy}{sp}")
+                if a.dry_run and prof:
+                    print("    description:\n      " + md["description"].replace("\n", "\n      "))
+                    print(f"    tags: {', '.join(md['tags'])}")
             else:
-                print(f"• {f.name}\n    caption: {instagram.caption(e, src).splitlines()[0]}\n    visibility: PUBLIC (Reel){sp}")
+                cap = instagram.caption(e, src, prof)
+                print(f"• {f.name}  [{profile.kind(e)}]\n    visibility: PUBLIC (Reel){sp}")
+                print("    caption:\n      " + cap.replace("\n", "\n      "))
             if a.dry_run:
                 continue
             try:
@@ -288,9 +299,9 @@ def run_post(a) -> int:
                     print(f"    speeding up to {a.speed:g}x…")
                     video = speed.speedup(f, a.speed)
                 if plat == "youtube":
-                    youtube.upload(f, e, src, a.privacy, force=a.force, video=video, speed=a.speed)
+                    youtube.upload(f, e, src, a.privacy, force=a.force, video=video, speed=a.speed, prof=prof)
                 else:
-                    instagram.upload(f, e, src, force=a.force, video=video, speed=a.speed)
+                    instagram.upload(f, e, src, force=a.force, video=video, speed=a.speed, prof=prof)
             except (youtube.NotConnected, instagram.NotConnected, youtube.LimitReached) as err:
                 print(f"    ✗ {err}")
                 rc = 1
@@ -355,7 +366,7 @@ def run(a) -> int:
     info = sources.fetch_info(a.url, tmp)
     out_dir = out_root / info["id"]
     is_live = info.get("is_live") or info.get("live_status") == "is_live"
-    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "style", "karaoke", "zoom_punch", "filter", "music", "hook_intro", "speed", "post_to", "clips", "sensitivity", "min_len",
+    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "style", "karaoke", "zoom_punch", "filter", "music", "post_profile", "hook_intro", "speed", "post_to", "clips", "sensitivity", "min_len",
                                            "max_len", "landscape", "no_from_start", "duration")}
     progress.setup(out_dir, a.url, info, "live" if is_live else "vod", settings)
     (tmp / "info.json").unlink(missing_ok=True)
@@ -365,7 +376,8 @@ def run(a) -> int:
         targets = ["youtube", "instagram"] if a.post_to == "both" else [a.post_to]
         if a.no_ai:
             print("  Note: no judge model — every clip found will be posted.")
-        autopost.start(targets, info, a.url, a.post_privacy, a.post_max)
+        import postprofile as profile
+        autopost.start(targets, info, a.url, a.post_privacy, a.post_max, profile.load(a.post_profile))
     try:
         if is_live:
             import live

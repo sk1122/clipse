@@ -41,6 +41,8 @@ class ClipChoice(BaseModel):
     hook: str = Field(description="On-screen hook text shown at the top, 2-7 words, ALL CAPS ok")
     why: str = Field(description="One sentence: why this moment will perform")
     virality: int = Field(description="1-10 estimate of viral potential")
+    category: str = Field(description="'funny' for fails, reactions, chaos, jokes and memes; 'highlight' for "
+                                      "impressive, cool, cinematic or hype moments")
     highlight: str = Field(description="The single word of the hook to show big and in colour: the punchline "
                                        "or most surprising word (e.g. 'WWE' in 'THEY GOT WWE IN THE GAME'), "
                                        "never a filler word like THE, GAME, BRO")
@@ -59,6 +61,7 @@ class Clip:
     why: str
     virality: int
     highlight: str = ""        # word of the hook to show big and in colour (edit styles)
+    category: str = ""         # funny | highlight — picks the hashtag set when posting
 
 
 SYSTEM = """You are a top short-form video editor who turns long livestreams into viral TikToks, \
@@ -114,7 +117,7 @@ def choose_with_claude(cands: list[Candidate], info: dict, n: int, min_len: int,
             end = start + min_len
         if end - start > max_len:
             end = start + max_len
-        clips.append(Clip(max(0.0, start), end, ch.title, ch.hook, ch.why, ch.virality, ch.highlight))
+        clips.append(Clip(max(0.0, start), end, ch.title, ch.hook, ch.why, ch.virality, ch.highlight, ch.category))
     return clips
 
 
@@ -189,6 +192,8 @@ class LiveVerdict(BaseModel):
     hook: str = Field(description="On-screen hook text, 2-7 words")
     why: str = Field(description="One sentence: why this will (or won't) perform")
     virality: int = Field(description="1-10 estimate of viral potential")
+    category: str = Field(description="'funny' for fails, reactions, chaos, jokes and memes; 'highlight' for "
+                                      "impressive, cool, cinematic or hype moments")
     highlight: str = Field(description="The single word of the hook to show big and in colour: the punchline "
                                        "or most surprising word, never a filler word")
 
@@ -227,4 +232,4 @@ def judge_live(transcript: str, chat_sample: list[str], window_len: float, peak_
         return None, v.why
     start = max(0.0, min(v.start, window_len - min_len))
     end = min(window_len, max(v.end, start + min_len), start + max_len)
-    return Clip(start, end, v.title, v.hook, v.why, v.virality, v.highlight), v.why
+    return Clip(start, end, v.title, v.hook, v.why, v.virality, v.highlight, v.category), v.why
