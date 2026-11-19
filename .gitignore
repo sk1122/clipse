@@ -15,3 +15,6 @@ out/
 __pycache__/
 *.pyc
 .DS_Store
+
+# your own background music (usually copyrighted)
+music/

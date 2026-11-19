@@ -101,6 +101,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="caption + hook language: hinglish (Hindi in Roman script; English stays English), "
                         "english (translated if needed), original/hindi (as spoken — Devanagari for Hindi). "
                         "Default hinglish")
+    c.add_argument("--style", default="auto", choices=["auto", "classic", "split", "fullscreen", "reaction"],
+                   help="edit style: split (content on top, streamer's webcam below), fullscreen, reaction "
+                        "(webcam big), classic (blurred background), or auto (picks per clip from the "
+                        "stream's layout). Default auto")
+    c.add_argument("--karaoke", action=argparse.BooleanOptionalAction, default=True,
+                   help="word-by-word captions with the spoken word highlighted (default on)")
+    c.add_argument("--zoom-punch", action=argparse.BooleanOptionalAction, default=True,
+                   help="quick zoom-in on the loudest moment (default on)")
+    c.add_argument("--filter", default="none",
+                   choices=["none", "vivid", "cinematic", "warm", "cool", "bw", "vintage", "dramatic"],
+                   help="colour look for the footage (titles and captions keep their colours). Default none")
+    c.add_argument("--music", default="none",
+                   help="background music, mixed low under the voice (it dips while people talk): none, auto "
+                        "(an original high-energy track generated per clip, no copyright issues), or a path "
+                        "to your own music file or folder. Default none")
+    c.add_argument("--music-volume", type=float, default=0.4, help="background music level, 0-1 (default 0.4)")
     c.add_argument("--post-to", default="none", choices=["none", "youtube", "instagram", "both"],
                    help="upload every clip the moment it's made (YouTube: private; Instagram: public Reel). "
                         "Clips the judge skips are never posted")
@@ -306,6 +322,8 @@ def run(a) -> int:
         a.captions = "original"
     render.CAPTION_LANG = picker.CAPTION_LANG = a.captions
     render.HOOK_INTRO = a.hook_intro
+    render.STYLE, render.KARAOKE, render.ZOOM_PUNCH = a.style, a.karaoke, a.zoom_punch
+    render.FILTER, render.MUSIC, render.MUSIC_VOLUME = a.filter, a.music, a.music_volume
     render.SPEED = a.speed
     hinglish.MODEL = None if a.no_ai else a.judge
     if not a.no_ai and not os.environ.get("ANTHROPIC_API_KEY"):
@@ -325,7 +343,7 @@ def run(a) -> int:
     info = sources.fetch_info(a.url, tmp)
     out_dir = out_root / info["id"]
     is_live = info.get("is_live") or info.get("live_status") == "is_live"
-    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "hook_intro", "speed", "post_to", "clips", "sensitivity", "min_len",
+    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "style", "karaoke", "zoom_punch", "filter", "music", "hook_intro", "speed", "post_to", "clips", "sensitivity", "min_len",
                                            "max_len", "landscape", "no_from_start", "duration")}
     progress.setup(out_dir, a.url, info, "live" if is_live else "vod", settings)
     (tmp / "info.json").unlink(missing_ok=True)

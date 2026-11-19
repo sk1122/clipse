@@ -107,7 +107,12 @@ class Job:
         return self.events[starts[-1]:] if starts else self.events
 
     def clips(self) -> list[dict]:
-        return [e for e in self.events if e["kind"] == "clip"]
+        """Clips in the order they were made; a re-run that rewrote a file shows only its newest entry."""
+        latest: dict = {}
+        for i, e in enumerate(self.events):
+            if e["kind"] == "clip":
+                latest[e.get("file") or f"skip:{i}"] = e
+        return list(latest.values())
 
     def review(self) -> dict:
         p = self.folder / "review.json"
@@ -255,6 +260,24 @@ class ClipperApp(App):
                               ("As spoken", "original")], value="hinglish", allow_blank=False,
                              id="captions", tooltip="Caption + hook language")
             with Horizontal(classes="row"):
+                yield Label("style", classes="lbl")
+                yield Select([("auto", "auto"), ("split (cam below)", "split"), ("full screen", "fullscreen"),
+                              ("reaction (cam big)", "reaction"), ("classic", "classic")], value="auto",
+                             allow_blank=False, id="style", tooltip="Edit layout; auto picks from the stream's layout")
+                yield Label("effects", classes="lbl")
+                yield Select([("karaoke + zoom", "both"), ("karaoke captions", "karaoke"), ("zoom punch", "zoom"),
+                              ("none", "none")], value="both", allow_blank=False, id="fx",
+                             tooltip="Word-by-word captions and a zoom-in on the loudest moment")
+                yield Label("filter", classes="lbl")
+                yield Select([(n, n) for n in ("none", "vivid", "cinematic", "warm", "cool", "bw", "vintage",
+                                               "dramatic")], value="none", allow_blank=False, id="filter",
+                             tooltip="Colour look for the footage")
+            with Horizontal(classes="row"):
+                yield Label("music", classes="lbl")
+                yield Select([("no music", "none"), ("energetic (generated)", "auto"),
+                              ("my music folder", str(HERE / "music"))], value="none", allow_blank=False, id="music",
+                             tooltip="Low-volume background music; it dips while people talk. "
+                                     "'My music folder' uses your tracks in clipper/music/")
                 yield Label("speed", classes="lbl")
                 yield Select([("1x", "1"), ("1.25x", "1.25"), ("1.5x", "1.5"), ("2x", "2")], value="1",
                              allow_blank=False, id="speed", tooltip="Play clips faster (voice pitch kept); also used by u")
@@ -308,6 +331,11 @@ class ClipperApp(App):
                *(["--hook-intro"] if self.query_one("#intro", Select).value == "teaser" else []),
                "--speed", str(self.query_one("#speed", Select).value),
                "--post-to", str(self.query_one("#postto", Select).value),
+               "--style", str(self.query_one("#style", Select).value),
+               "--filter", str(self.query_one("#filter", Select).value),
+               "--music", str(self.query_one("#music", Select).value),
+               "--karaoke" if self.query_one("#fx", Select).value in ("both", "karaoke") else "--no-karaoke",
+               "--zoom-punch" if self.query_one("#fx", Select).value in ("both", "zoom") else "--no-zoom-punch",
                "--clips", self.query_one("#nclips", Input).value.strip() or "5",
                "--sensitivity", self.query_one("#sens", Input).value.strip() or "2.5"]
         post_to = str(self.query_one("#postto", Select).value)

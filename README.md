@@ -82,6 +82,35 @@ The TUI offers the same choices next to the link box.
 | `--duration`, `--max-clips` | live: stop after N minutes / N clips | until the stream ends |
 | `--live-quality` | live recording height | 720 |
 
+## Edit styles
+
+Pick a style in the TUI (**style**) or with `--style`:
+
+| Style | Looks like |
+|---|---|
+| `split` | content on top, the streamer's webcam big underneath, a big title across the middle with the punchline word in red |
+| `fullscreen` | content fills the frame, with a webcam bubble in a corner |
+| `reaction` | the webcam fills most of the frame, with the content in a strip below |
+| `classic` | 16:9 video on a blurred background, with the hook banner on top |
+| `auto` (default) | `split` when the stream has a webcam overlay, `fullscreen` when the camera is the whole picture (IRL, just chatting, vlogs), `classic` when there's no camera |
+
+**How the webcam is found:**
+- **Overlays:** clipse detects the streamer's face and the fixed rectangle around it, in any corner, size or shape. Faces that never move (posters, menu art) are ignored.
+- **Per-stream memory:** a webcam doesn't move during a stream, so clipse remembers where it was found and goes with the stream's majority. One confusing clip can't move the crop.
+- **Split layout:** the top half shows the side of the picture away from the webcam, so the cam isn't shown twice.
+
+**Extras** (all optional):
+
+| Option | Does | Default |
+|---|---|---|
+| `--karaoke` | captions 2–3 words at a time, with the spoken word lit up | on |
+| `--zoom-punch` | quick zoom-in on the loudest moment | on |
+| `--filter` | colour look for the footage: `vivid`, `cinematic`, `warm`, `cool`, `bw`, `vintage`, `dramatic` | none |
+| `--music` | low-volume background music that dips whenever someone talks. `auto` generates an original high-energy track per clip (no copyright issues); or give a music file or folder. The TUI's "my music folder" uses `clipper/music/` | none |
+| `--music-volume` | music level, 0–1 | 0.4 |
+
+The judge also picks which word of the hook to highlight.
+
 ## Posting to YouTube
 
 **Auto-post while clipping:** in the TUI, pick **post to** next to the link (or pass `--post-to youtube|instagram|both`), and every clip is uploaded as soon as it's made. Uploads run in the background, so they never slow down live clipping. The clip list marks posted clips with `▶yt` and `▶ig`, and the progress panel shows what's been posted. Connect each platform first (below).
@@ -166,6 +195,9 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `hinglish.py` | Hinglish transliteration and English translation of captions |
 | `render.py` | vertical render: blurred background, hook banner, captions, fade |
 | `hook.py` | hook intros (teaser cold-open + hook line) |
+| `facecam.py` | finding the streamer's webcam in any layout |
+| `styles.py` | split / fullscreen / reaction layouts and the big title |
+| `music.py` | generated background music |
 | `speed.py` | speeding clips up with the voice pitch kept |
 | `youtube.py` | YouTube sign-in and Shorts uploads |
 | `instagram.py` | Instagram Reels publishing |

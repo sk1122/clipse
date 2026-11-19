@@ -13,6 +13,12 @@ from sources import YTDLP, Word, run
 
 FONT_CAPTION = "caption"        # font roles, resolved per platform by platform_util.font()
 FONT_HOOK = "hook"
+STYLE = "classic"          # set by the CLI (--style): classic | split | fullscreen | reaction | auto
+KARAOKE = False            # set by the CLI (--karaoke): word-by-word highlighted captions
+ZOOM_PUNCH = False         # set by the CLI (--zoom-punch): quick zoom-in on the loudest moment
+FILTER = "none"            # set by the CLI (--filter): colour look, see FILTERS
+MUSIC = "none"             # set by the CLI (--music): none | auto (generated) | path to a music file or folder
+MUSIC_VOLUME = 0.4         # background music level under the voice (the music also dips while people talk)
 SPEED = 1.0                # set by the CLI (--speed): play every clip faster, voice pitch kept
 HOOK_INTRO = False          # set by the CLI (--hook-intro): open with a teaser + hook line
 CAPTION_LANG = "hinglish"   # original | hinglish | english — set by the CLI (--captions)
@@ -177,6 +183,103 @@ def _caption_track(words: list[Word], clip: Clip, width: int, size: int, work: P
     return lst
 
 
+KARAOKE_ON = (255, 225, 0)     # the word being spoken
+
+
+def _karaoke_png(words: list[str], active: int, width: int, path: Path, size: int) -> None:
+    img = Image.new("RGBA", (width, int(size * 2.6)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    text = " ".join(words)
+    font = _font(FONT_CAPTION, size, text)
+    while d.textlength(text, font=font) > width - 100 and size > 30:
+        size -= 4
+        font = _font(FONT_CAPTION, size, text)
+    space = d.textlength(" ", font=font)
+    x = (width - d.textlength(text, font=font)) / 2
+    for i, w in enumerate(words):
+        on = i == active
+        d.text((x, img.height / 2), w, font=font, anchor="lm", fill=KARAOKE_ON if on else "white",
+               stroke_width=max(5, size // 9) if on else max(4, size // 11), stroke_fill="black")
+        x += d.textlength(w, font=font) + space
+    img.save(path)
+
+
+def _karaoke_track(words: list[Word], clip: Clip, width: int, size: int, work: Path) -> Path | None:
+    """Captions shown 2-3 words at a time, with the word being spoken lit up."""
+    ws = [w for w in words if clip.start <= w.t < clip.end and re.sub(r"\[.*?\]", "", w.text).strip()]
+    if not ws:
+        return None
+    groups: list[list[Word]] = []
+    for w in ws:
+        g = groups[-1] if groups else None
+        if g is None or len(g) >= 3 or w.t - g[-1].t > 0.6 or len(" ".join(x.text for x in g + [w])) > 18:
+            groups.append([w])
+        else:
+            g.append(w)
+    work.mkdir(parents=True, exist_ok=True)
+    blank = work / "blank.png"
+    _caption_png("", width, blank, size)
+    entries, cursor, n = [], 0.0, 0
+    for gi, g in enumerate(groups):
+        texts = [w.text.upper() for w in g]
+        group_end = (groups[gi + 1][0].t if gi + 1 < len(groups) else clip.end) - clip.start
+        group_end = min(group_end, g[-1].t - clip.start + 1.2)
+        for wi, w in enumerate(g):
+            t0 = w.t - clip.start
+            t1 = (g[wi + 1].t - clip.start) if wi + 1 < len(g) else group_end
+            if t1 <= t0:
+                continue
+            if t0 > cursor + 0.01:
+                entries.append((blank, t0 - cursor))
+            p = work / f"kar_{n:04d}.png"
+            n += 1
+            _karaoke_png(texts, wi, width, p, size)
+            entries.append((p, t1 - max(t0, cursor)))
+            cursor = t1
+    entries.append((blank, max(0.1, clip.end - clip.start - cursor)))
+    lst = work / "captions.txt"
+    lines = []
+    for p, dur in entries:
+        lines += [f"file '{p.resolve()}'", f"duration {max(dur, 0.04):.3f}"]
+    lines.append(f"file '{entries[-1][0].resolve()}'")
+    lst.write_text("\n".join(lines) + "\n")
+    return lst
+
+
+def zoom_punch(path: Path, amount: float = 0.14, half: float = 0.35) -> None:
+    """A quick punch-in zoom on the loudest moment of the clip (in place)."""
+    import catchup
+    loud = catchup.loudness(path)
+    length = _duration(path) or 0
+    cands = [(m, t) for t, m in loud if 1.0 <= t <= length - 1.0]
+    if not cands:
+        return
+    peak = max(cands)[1]
+    z = f"(1+{amount}*max(0,1-abs(t-{peak:.2f})/{half}))"
+    tmp = path.with_suffix(".zoom.mp4")
+    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(path), "-filter:v",
+                    f"scale=w='trunc(iw*{z}/2)*2':h='trunc(ih*{z}/2)*2':eval=frame,"
+                    f"crop={W_V}:{H_V}:(in_w-{W_V})/2:(in_h-{H_V})/2,setsar=1",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                    "-c:a", "copy", "-movflags", "+faststart", str(tmp)], check=True, timeout=600)
+    tmp.replace(path)
+
+
+W_V, H_V = 1080, 1920
+
+# colour looks, applied to the footage only (titles and captions keep their colours)
+FILTERS = {
+    "none": "",
+    "vivid": "eq=saturation=1.35:contrast=1.08:brightness=0.01",
+    "cinematic": "curves=preset=medium_contrast,colorbalance=rs=0.06:bs=-0.06:rh=-0.04:bh=0.06,eq=saturation=0.9:brightness=0.04,vignette=PI/6",
+    "warm": "colorbalance=rs=0.10:gs=0.02:bs=-0.10:rm=0.06:bm=-0.06,eq=saturation=1.1",
+    "cool": "colorbalance=rs=-0.08:bs=0.10:rm=-0.04:bm=0.06,eq=saturation=1.05",
+    "bw": "hue=s=0,eq=contrast=1.15",
+    "vintage": "curves=preset=vintage,eq=saturation=0.85,vignette=PI/4",
+    "dramatic": "eq=contrast=1.25:saturation=1.2:brightness=0.03,vignette=PI/6",
+}
+
+
 # ---------- final render ----------
 
 def render(url: str, clip: Clip, words: list[Word], idx: int, out_dir: Path, work: Path,
@@ -206,14 +309,37 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
     cap_size = 88 if vertical else 72
     if captions:
         words = caption_words([w for w in words if clip.start <= w.t < clip.end], clip.end)
-    track = _caption_track(words, clip, W, cap_size, cw) if captions else None
+    if captions and KARAOKE:
+        track = _karaoke_track(words, clip, W, cap_size + 8, cw)
+    else:
+        track = _caption_track(words, clip, W, cap_size, cw) if captions else None
 
     seek = max(0.0, clip.start - src_offset)
     src_len = _duration(src)
     if src_len and seek > src_len - 1:
         raise ValueError(f"clip starts at {seek:.1f}s but the source is only {src_len:.1f}s long")
     inputs = ["-ss", f"{seek:.3f}", "-i", str(src)]
-    if vertical:
+    chosen = "classic"
+    if vertical and STYLE != "classic":
+        import facecam
+        import styles
+        cam = facecam.find(src, seek, length, memory=cw.parent / "facecam.json")
+        chosen = styles.resolve(STYLE, cam)
+        if chosen != STYLE:
+            print(f"    style {STYLE} → {chosen} ({'no webcam found' if cam is None else 'camera is the whole picture' if cam.full_frame else 'webcam found'})")
+    if chosen != "classic":
+        sw, sh = (int(v) for v in subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+             "-of", "csv=p=0", str(src)], capture_output=True, text=True).stdout.split()[0].split(",")[:2])
+        cw.mkdir(parents=True, exist_ok=True)
+        tpng = cw / "title.png"
+        th = styles.title_png(clip.hook or clip.title, tpng, lambda size, t: _font(FONT_CAPTION, size, t),
+                              highlight=getattr(clip, "highlight", ""))
+        lay = styles.build(chosen, cam, sw, sh, th)
+        inputs += ["-loop", "1", "-i", str(tpng)]
+        f = lay.filter + ";"
+        cap_y, cap_in = lay.caption_y, 2
+    elif vertical:
         f = ("[0:v]split=2[a][b];"
              f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=40[bg];"
              f"[b]scale={W}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v0];")
@@ -232,6 +358,9 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
         f += f"[{cap_in}:v]format=rgba[cap];[v1][cap]overlay=0:{cap_y}:eof_action=pass[v2];"
     else:
         f += "[v1]null[v2];"
+    look = FILTERS.get(FILTER, "")
+    if look:
+        f = f.replace("[0:v]", f"[0:v]{look},", 1)
     fade = 0.4
     f += f"[v2]fade=t=out:st={max(0.0, length - fade):.2f}:d={fade}[v]"
 
@@ -243,6 +372,8 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
            "-t", f"{length:.2f}", str(out)]
     # a render never takes anywhere near this long; the timeout stops a bad input hanging a job forever
     subprocess.run(cmd, check=True, timeout=max(180, length * 6))
+    if ZOOM_PUNCH and vertical:
+        zoom_punch(out)
     if HOOK_INTRO:
         import hook
         hooked = hook.add_hook_intro(out, meta={"title": clip.title, "hook": clip.hook, "why": clip.why},
@@ -252,4 +383,54 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
         import speed
         fast = speed.speedup(out, SPEED)
         fast.replace(out)            # the sped-up version becomes the clip
+    if MUSIC and MUSIC != "none":
+        add_music(out, MUSIC, MUSIC_VOLUME)
     return out
+
+
+MUSIC_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
+
+
+def add_music(path: Path, source: str, volume: float = MUSIC_VOLUME) -> None:
+    """Mix low-volume background music under a finished clip (in place). The music ducks automatically
+    while someone is talking. source: "auto" generates an original high-energy track for this clip;
+    otherwise a music file, or a folder to pick a track from."""
+    import random
+    length = _duration(path) or 0
+    if length <= 0:
+        return
+    seed = sum(map(ord, path.name))
+    if source == "auto":
+        import music
+        track = path.with_suffix(".music.wav")
+        music.variant(seed)
+        music.make_track(length + 0.5, 0.0, track)
+        loop = []
+    else:
+        p = Path(source).expanduser()
+        files = sorted(f for f in p.rglob("*") if f.suffix.lower() in MUSIC_EXT) if p.is_dir() else [p]
+        files = [f for f in files if f.exists()]
+        if not files:
+            print(f"    (no music found at {source}; clip left without music)")
+            return
+        track = random.Random(seed).choice(files)
+        loop = ["-stream_loop", "-1"]           # short tracks repeat to cover the clip
+    has_voice = bool(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries",
+                                     "stream=index", "-of", "csv=p=0", str(path)],
+                                    capture_output=True, text=True).stdout.strip())
+    fade_out = max(0.0, length - 1.0)
+    music_chain = (f"[1:a]aresample=48000,aformat=channel_layouts=stereo,volume={volume},"
+                   f"afade=t=in:d=0.4,afade=t=out:st={fade_out:.2f}:d=1.0")
+    if has_voice:
+        graph = (f"[0:a]aresample=48000,aformat=channel_layouts=stereo,asplit=2[v][key];{music_chain}[m];"
+                 f"[m][key]sidechaincompress=threshold=0.06:ratio=4:attack=20:release=250[md];"
+                 f"[v][md]amix=inputs=2:normalize=0:duration=first[a]")
+    else:
+        graph = f"{music_chain},atrim=0:{length:.2f}[a]"
+    tmp = path.with_suffix(".mix.mp4")
+    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(path), *loop, "-i", str(track),
+                    "-filter_complex", graph, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac",
+                    "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(tmp)], check=True, timeout=600)
+    tmp.replace(path)
+    if source == "auto":
+        track.unlink(missing_ok=True)
