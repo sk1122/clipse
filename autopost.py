@@ -65,7 +65,7 @@ def _run() -> None:
             _q.task_done()
             return
         f = Path(clip["file"])
-        for p in _cfg["platforms"]:
+        for p in list(_cfg["platforms"]):
             mod = youtube if p == "youtube" else instagram
             try:
                 if mod.posted(f):
@@ -83,6 +83,10 @@ def _run() -> None:
                     rec = instagram.upload(f, clip, _source(clip))
                 progress.emit("posted", platform=p, file=str(f), url=rec.get("url"),
                               privacy=rec.get("privacy", "public"))
+            except youtube.LimitReached as e:
+                print(f"    [{p}] {e} Stopping YouTube auto-posts for this run.")
+                progress.emit("post_error", platform=p, file=str(f), message=str(e))
+                _cfg["platforms"] = [x for x in _cfg["platforms"] if x != "youtube"]
             except Exception as e:     # one failed upload must never stop clipping
                 msg = f"{type(e).__name__}: {str(e)[:200]}"
                 print(f"    [{p}] ✗ upload failed: {msg}")

@@ -263,8 +263,8 @@ def run_post(a) -> int:
                     youtube.upload(f, e, src, a.privacy, force=a.force, video=video, speed=a.speed)
                 else:
                     instagram.upload(f, e, src, force=a.force, video=video, speed=a.speed)
-            except (youtube.NotConnected, instagram.NotConnected) as err:
-                print(err)
+            except (youtube.NotConnected, instagram.NotConnected, youtube.LimitReached) as err:
+                print(f"    ✗ {err}")
                 rc = 1
                 break
             except RuntimeError as err:

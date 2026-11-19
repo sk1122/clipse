@@ -31,6 +31,10 @@ class NotConnected(RuntimeError):
     pass
 
 
+class LimitReached(RuntimeError):
+    """YouTube won't take more uploads today (API quota or the channel's own daily upload limit)."""
+
+
 # ---------------------------------------------------------------- auth
 
 def connect() -> str:
@@ -125,7 +129,7 @@ def metadata(meta: dict, source_url: str | None, shorts_tag: bool = True) -> dic
 def upload(clip: Path, meta: dict, source_url: str | None = None, privacy: str = "private",
            force: bool = False, log=print, video: Path | None = None, speed: float = 1.0) -> dict:
     """Upload one clip. Skips clips already uploaded unless force=True. Returns the post record."""
-    from googleapiclient.errors import HttpError
+    from googleapiclient.errors import HttpError, ResumableUploadError
     from googleapiclient.http import MediaFileUpload
     clip = Path(clip)
     if not force and (prev := posted(clip)):
@@ -142,14 +146,19 @@ def upload(clip: Path, meta: dict, source_url: str | None = None, privacy: str =
             status, resp = req.next_chunk()
             if status:
                 log(f"    uploading… {int(status.progress() * 100)}%")
-        except HttpError as e:
+        except (HttpError, ResumableUploadError) as e:
+            body = (getattr(e, "content", b"") or b"").lower()
             if e.resp.status in (500, 502, 503, 504) and tries < 5:
                 tries += 1
                 time.sleep(2 ** tries)
                 continue
-            if e.resp.status == 403 and b"quota" in (e.content or b"").lower():
-                raise RuntimeError("YouTube's daily upload quota is used up — try again tomorrow.") from e
-            raise
+            if b"quota" in body:
+                raise LimitReached("YouTube's daily API quota is used up — uploads resume tomorrow "
+                                   "(it resets at midnight Pacific time).") from e
+            if b"exceeded the number of videos" in body or b"uploadlimitexceeded" in body:
+                raise LimitReached("YouTube's daily upload limit for this channel is reached — "
+                                   "uploads resume tomorrow.") from e
+            raise RuntimeError(f"YouTube upload failed ({e.resp.status}): {body[:200].decode(errors='ignore')}") from e
     rec = _record(clip, resp["id"], resp.get("status", {}).get("privacyStatus", privacy), speed)
     log(f"    ✓ uploaded ({rec['privacy']}): {rec['url']}")
     return rec
