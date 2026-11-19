@@ -140,6 +140,15 @@ def _on_youtube(file: str) -> bool:
         return False
 
 
+def _on_instagram(file: str) -> bool:
+    try:
+        import instagram
+        p = Path(file) if Path(file).is_absolute() else HERE / file
+        return instagram.posted(p) is not None
+    except Exception:
+        return False
+
+
 def fmt_secs(s: float | None) -> str:
     if s is None:
         return "-"
@@ -182,7 +191,8 @@ class ClipperApp(App):
     #newjob { height: auto; padding: 0 1; border: round $primary; }
     #newjob .row { height: auto; }
     #newjob Input#url { width: 1fr; }
-    #newjob Select { width: 20; }
+    #newjob Select#postto { width: 26; }
+    #newjob Select { width: 26; }
     #newjob Input.small { width: 9; }
     #newjob .lbl { padding: 1 0 0 1; color: $text-muted; }
     #newjob Button { margin-left: 1; }
@@ -228,6 +238,10 @@ class ClipperApp(App):
         with Vertical(id="newjob"):
             with Horizontal(classes="row"):
                 yield Input(placeholder="Paste a YouTube link — live or finished — and press Enter", id="url")
+                yield Label("post to", classes="lbl")
+                yield Select([("don't post", "none"), ("YouTube", "youtube"), ("Instagram", "instagram"),
+                              ("YouTube + Instagram", "both")], value="none", allow_blank=False, id="postto",
+                             tooltip="Upload every clip as soon as it's made (YouTube private, Instagram public)")
                 yield Button("Start", id="start", variant="success")
             with Horizontal(classes="row"):
                 yield Label("speech", classes="lbl")
@@ -240,6 +254,7 @@ class ClipperApp(App):
                 yield Select([("Hinglish", "hinglish"), ("English", "english"),
                               ("As spoken", "original")], value="hinglish", allow_blank=False,
                              id="captions", tooltip="Caption + hook language")
+            with Horizontal(classes="row"):
                 yield Label("speed", classes="lbl")
                 yield Select([("1x", "1"), ("1.25x", "1.25"), ("1.5x", "1.5"), ("2x", "2")], value="1",
                              allow_blank=False, id="speed", tooltip="Play clips faster (voice pitch kept); also used by u")
@@ -258,6 +273,7 @@ class ClipperApp(App):
                     yield Static("", id="pline")
                     yield ProgressBar(total=100, show_eta=False, id="pbar")
                     yield Static("", id="pline2", classes="muted")
+                    yield Static("", id="ppost")
                     yield ProgressBar(total=100, show_eta=False, id="pbar2")
                     yield Sparkline([0], id="spark")
                 yield DataTable(id="clips", cursor_type="row", zebra_stripes=True)
@@ -291,8 +307,21 @@ class ClipperApp(App):
                "--captions", str(self.query_one("#captions", Select).value),
                *(["--hook-intro"] if self.query_one("#intro", Select).value == "teaser" else []),
                "--speed", str(self.query_one("#speed", Select).value),
+               "--post-to", str(self.query_one("#postto", Select).value),
                "--clips", self.query_one("#nclips", Input).value.strip() or "5",
                "--sensitivity", self.query_one("#sens", Input).value.strip() or "2.5"]
+        post_to = str(self.query_one("#postto", Select).value)
+        if post_to != "none":
+            import instagram
+            import youtube
+            missing = [p for p in (["youtube", "instagram"] if post_to == "both" else [post_to])
+                       if not (youtube if p == "youtube" else instagram).connected()]
+            if missing:
+                self.notify(f"Not connected to {', '.join(missing)} — run ./clipse connect {missing[0]} first. "
+                            "Starting without posting there.", severity="warning", timeout=8)
+            if post_to in ("instagram", "both"):
+                self.notify("Clips will be posted to Instagram PUBLICLY as soon as they're made.",
+                            title="Auto-post", severity="warning", timeout=8)
         logs = OUT / "_logs"
         logs.mkdir(parents=True, exist_ok=True)
         log = open(logs / f"{time.strftime('%Y%m%d-%H%M%S')}.log", "w")
@@ -463,6 +492,17 @@ class ClipperApp(App):
             line2.update(f"Signals: chat {sig['chat']} msgs ({sig['chat_raw'] - sig['chat']} spam removed) · "
                          f"captions {sig['caption_words']} words · most-replayed {'yes' if sig['heatmap'] else 'no'}"
                          if sig else "")
+        posted = [e for e in ev if e["kind"] == "posted"]
+        perr = [e for e in ev if e["kind"] == "post_error"]
+        if s.get("post_to") not in (None, "none"):
+            yt = sum(1 for e in posted if e["platform"] == "youtube")
+            ig = sum(1 for e in posted if e["platform"] == "instagram")
+            msg = f"Auto-post ({s.get('post_to')}): {yt} on YouTube · {ig} on Instagram"
+            if perr:
+                msg += f"  ·  ⚠ {perr[-1]['message'][:90]}"
+            self.query_one("#ppost", Static).update(Text(msg, style="yellow" if perr else "green"))
+        else:
+            self.query_one("#ppost", Static).update("")
         if err and j.status == "failed":
             line2.update(Text(f"Error: {err['message']}", style="bold red"))
 
@@ -477,13 +517,14 @@ class ClipperApp(App):
             exists = bool(c.get("file")) and Path(HERE / c["file"]).exists() or (c.get("file") and Path(c["file"]).exists())
             state = review.get(key, "new")
             on_yt = bool(c.get("file")) and _on_youtube(c["file"])
+            on_ig = bool(c.get("file")) and _on_instagram(c["file"])
             part = {"live": "live", "from_start": "aired"}.get(c.get("part", ""), "vod")
             at = c.get("moment_local_time") or c.get("stream_time") or ""
             score = c.get("score", c.get("peak_z"))
             judge = ("skip" if c.get("skipped") or c.get("claude_skipped") else f"{c.get('virality', '-')}/10")
             title = c.get("title") or (c.get("skipped") or "")[:60]
             style = "dim strike" if (c.get("file") and not exists) else ("dim" if judge == "skip" else "")
-            rows.append((key, (REVIEW_STATES[state] + (" ▶yt" if on_yt else ""), part, at, "-" if score is None else f"{score:+.1f}",
+            rows.append((key, (REVIEW_STATES[state] + (" ▶yt" if on_yt else "") + (" ▶ig" if on_ig else ""), part, at, "-" if score is None else f"{score:+.1f}",
                                judge, Text(title, style=style))))
         ready = sum(1 for c in clips if c.get("file"))
         ct.border_subtitle = f"🎬 {ready} clips ready" if ready else ""
@@ -612,6 +653,8 @@ class ClipperApp(App):
 
 
 def main() -> None:
+    import clip
+    clip.load_dotenv()          # API keys and tokens, for the "post to" check and uploads
     OUT.mkdir(parents=True, exist_ok=True)
     ClipperApp().run()
 

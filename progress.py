@@ -30,11 +30,21 @@ def setup(job_dir: Path, url: str, info: dict, mode: str, settings: dict) -> Non
     emit("start", mode=mode)
 
 
+_listeners: list = []
+
+
+def on_clip(callback) -> None:
+    """Call `callback(clip_event)` for every clip announced from now on (used by auto-posting)."""
+    _listeners.append(callback)
+
+
 def emit(kind: str, **data) -> None:
-    if _file is None:
-        return
-    with _lock:
-        _file.write(json.dumps({"t": round(time.time(), 2), "kind": kind, **data}, ensure_ascii=False) + "\n")
+    if _file is not None:
+        with _lock:
+            _file.write(json.dumps({"t": round(time.time(), 2), "kind": kind, **data}, ensure_ascii=False) + "\n")
+    if kind == "clip":
+        for cb in _listeners:
+            cb(data)
 
 
 def stage(n: int, of: int, name: str, detail: str = "", part: str = "main", frac: float | None = None) -> None:

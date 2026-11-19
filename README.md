@@ -71,6 +71,8 @@ The TUI offers the same choices next to the link box.
 | `--speech-model` | tiny, base, small, medium, large-v3-turbo, large-v3 | large-v3-turbo |
 | `--judge` | claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-fable-5-2, none | claude-opus-5-5 |
 | `--captions` | hinglish (Hindi in Roman script), english (translated if needed), original (as spoken; `hindi` = Devanagari) | hinglish |
+| `--post-to` | `youtube`, `instagram` or `both`: upload every clip the moment it's made. YouTube uploads are private; Instagram Reels are public. Clips the judge skips are never posted | none |
+| `--post-max` | max auto-posts per platform per day | 5 |
 | `--speed` | play every clip faster, e.g. `1.5` or `2`; the voice keeps its normal pitch | 1 |
 | `--hook-intro` | open each clip with its best 2.5 s and a hook line, then the full clip | off |
 | `--clips` | clips from a finished stream, or from the already-aired part of a live one | 5 |
@@ -81,6 +83,8 @@ The TUI offers the same choices next to the link box.
 | `--live-quality` | live recording height | 720 |
 
 ## Posting to YouTube
+
+**Auto-post while clipping:** in the TUI, pick **post to** next to the link (or pass `--post-to youtube|instagram|both`), and every clip is uploaded as soon as it's made. Uploads run in the background, so they never slow down live clipping. The clip list marks posted clips with `▶yt` and `▶ig`, and the progress panel shows what's been posted. Connect each platform first (below).
 
 clipse can upload clips to your channel as Shorts through the official YouTube Data API. It's free, and you set it up once:
 
@@ -165,6 +169,7 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `speed.py` | speeding clips up with the voice pitch kept |
 | `youtube.py` | YouTube sign-in and Shorts uploads |
 | `instagram.py` | Instagram Reels publishing |
+| `autopost.py` | uploading clips in the background as a job makes them |
 | `progress.py` | `job.json` / `events.jsonl` progress events that the TUI follows |
 | `tui.py` | the terminal UI |
 

@@ -101,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="caption + hook language: hinglish (Hindi in Roman script; English stays English), "
                         "english (translated if needed), original/hindi (as spoken — Devanagari for Hindi). "
                         "Default hinglish")
+    c.add_argument("--post-to", default="none", choices=["none", "youtube", "instagram", "both"],
+                   help="upload every clip the moment it's made (YouTube: private; Instagram: public Reel). "
+                        "Clips the judge skips are never posted")
+    c.add_argument("--post-privacy", default="private", choices=["private", "unlisted", "public"],
+                   help="YouTube visibility for auto-posted clips (default private)")
+    c.add_argument("--post-max", type=int, default=5, help="max auto-posts per platform per day (default 5)")
     c.add_argument("--speed", type=float, default=1.0,
                    help="play every clip faster, e.g. 1.5 or 2 (voice pitch is kept). Default 1")
     c.add_argument("--hook-intro", action="store_true",
@@ -319,20 +325,27 @@ def run(a) -> int:
     info = sources.fetch_info(a.url, tmp)
     out_dir = out_root / info["id"]
     is_live = info.get("is_live") or info.get("live_status") == "is_live"
-    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "hook_intro", "speed", "clips", "sensitivity", "min_len",
+    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "hook_intro", "speed", "post_to", "clips", "sensitivity", "min_len",
                                            "max_len", "landscape", "no_from_start", "duration")}
     progress.setup(out_dir, a.url, info, "live" if is_live else "vod", settings)
     (tmp / "info.json").unlink(missing_ok=True)
 
-    if is_live:
-        import live
-        return live.Live(a, info, out_dir).run()
-
+    import autopost
+    if a.post_to != "none":
+        targets = ["youtube", "instagram"] if a.post_to == "both" else [a.post_to]
+        if a.no_ai:
+            print("  Note: no judge model — every clip found will be posted.")
+        autopost.start(targets, info, a.url, a.post_privacy, a.post_max)
     try:
+        if is_live:
+            import live
+            return live.Live(a, info, out_dir).run()
         return run_vod(a, info, out_dir)
     except Exception as e:
         progress.emit("error", message=f"{type(e).__name__}: {str(e)[:300]}")
         raise
+    finally:
+        autopost.finish()
 
 
 def run_vod(a, info: dict, out_dir: Path) -> int:
