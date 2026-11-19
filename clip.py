@@ -63,6 +63,19 @@ def build_parser() -> argparse.ArgumentParser:
     hk.add_argument("--text", help="hook line to use (default: written by the judge model)")
     hk.add_argument("--judge", default=DEFAULT_JUDGE, choices=list(JUDGE_MODELS))
     hk.add_argument("--record", action="store_true", help=argparse.SUPPRESS)   # used by the TUI
+    cn = sub.add_parser("connect", help="sign in to a platform for posting (youtube)")
+    cn.add_argument("platform", choices=["youtube"])
+    po = sub.add_parser("post", help="upload clips to YouTube as Shorts")
+    po.add_argument("clips", nargs="*", help="clip files (or use --auto)")
+    po.add_argument("--auto", action="store_true",
+                    help="upload every clip marked keep in the TUI (or scoring --min-score) not yet uploaded")
+    po.add_argument("--min-score", type=int, default=0,
+                    help="with --auto: also upload clips the judge rated at least this (1-10); 0 = keep-marked only")
+    po.add_argument("--privacy", default="private", choices=["private", "unlisted", "public"],
+                    help="visibility on YouTube (default private: you publish in YouTube Studio)")
+    po.add_argument("--max", type=int, default=5, help="max uploads per day (default 5)")
+    po.add_argument("--dry-run", action="store_true", help="show what would be uploaded, upload nothing")
+    po.add_argument("--force", action="store_true", help="upload even if this clip was uploaded before")
     r = sub.add_parser("run", help="clip a YouTube stream or video")
     r.add_argument("url", help="YouTube link (live or finished)")
 
@@ -134,6 +147,16 @@ def main(argv: list[str] | None = None) -> int:
         import tui
         tui.main()
         return 0
+    if a.cmd == "connect":
+        import youtube
+        try:
+            print(f"✓ Connected to YouTube channel: {youtube.connect()}")
+            return 0
+        except youtube.NotConnected as e:
+            print(e)
+            return 1
+    if a.cmd == "post":
+        return run_post(a)
     if a.cmd == "hook":
         return run_hook(a)
     if a.cmd == "models":
@@ -146,6 +169,62 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     normalise(a)
     return run(a)
+
+
+def clip_index() -> list[tuple[Path, dict, dict]]:
+    """Every clip file clipse has made: (file, its clip record, its job's info + review marks)."""
+    out = []
+    for job in sorted((HERE / "out").glob("*/events.jsonl")):
+        meta = json.loads((job.parent / "job.json").read_text()) if (job.parent / "job.json").exists() else {}
+        review = json.loads((job.parent / "review.json").read_text()) if (job.parent / "review.json").exists() else {}
+        for line in job.read_text().splitlines():
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("kind") == "clip" and e.get("file"):
+                f = Path(e["file"]) if Path(e["file"]).is_absolute() else HERE / e["file"]
+                if f.exists():
+                    out.append((f, e, {**meta, "review": review.get(e["file"], "new")}))
+    return out
+
+
+def run_post(a) -> int:
+    import youtube
+    index = {f.resolve(): (e, j) for f, e, j in clip_index()}
+    if a.auto:
+        todo = [(f, e, j) for f, (e, j) in index.items()
+                if not e.get("skipped") and j["review"] != "reject" and not youtube.posted(f)
+                and (j["review"] == "keep" or (a.min_score and (e.get("virality") or 0) >= a.min_score))]
+    else:
+        if not a.clips:
+            print("Give clip files, or --auto.")
+            return 1
+        todo = []
+        for c in a.clips:
+            f = Path(c).resolve()
+            e, j = index.get(f, ({"title": f.stem.replace("_", " ")}, {}))
+            todo.append((f, e, j))
+    if not todo:
+        print("Nothing to upload (mark clips with k in the TUI, or use --min-score).")
+        return 0
+    left = max(0, a.max - (youtube.uploads_today() if not a.dry_run and youtube.connected() else 0))
+    for f, e, j in todo[:left] if not a.force else todo:
+        src = j.get("url")
+        if src and e.get("start") is not None and e.get("part") != "live":
+            src = f"https://youtu.be/{j.get('id')}?t={int(e['start'])}"
+        md = youtube.metadata(e, src)
+        print(f"• {f.name}\n    title: {md['title']}\n    visibility: {a.privacy}")
+        if a.dry_run:
+            continue
+        try:
+            youtube.upload(f, e, src, a.privacy, force=a.force)
+        except youtube.NotConnected as err:
+            print(err)
+            return 1
+    if len(todo) > left and not a.force:
+        print(f"Daily limit reached ({a.max}); {len(todo) - left} clip(s) left for tomorrow.")
+    return 0
 
 
 def run_hook(a) -> int:

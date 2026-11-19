@@ -54,6 +54,7 @@ Run the TUI in a normal terminal (Terminal, iTerm, …). Some embedded terminal 
 | `Enter` | on a job: jump to its clips · on a clip: play it |
 | `k` / `x` / `p` | mark a clip keep / reject / posted |
 | `h` | add a hook intro to the selected clip (adds a 🪝 version) |
+| `u` | upload the selected clip to YouTube (see [Posting](#posting-to-youtube)) |
 | `d` | delete a clip file (asks first) |
 | `y` / `f` | open that moment on YouTube / show the file in its folder |
 | `s` | stop the selected job |
@@ -77,6 +78,37 @@ The TUI offers the same choices next to the link box.
 | `--keep-skipped` | live: also render moments the judge would skip (`SKIPPED_…`), for tuning | off |
 | `--duration`, `--max-clips` | live: stop after N minutes / N clips | until the stream ends |
 | `--live-quality` | live recording height | 720 |
+
+## Posting to YouTube
+
+clipse can upload clips to your channel as Shorts through the official YouTube Data API. It's free, and you set it up once:
+
+1. In [Google Cloud Console](https://console.cloud.google.com), create a project and enable **YouTube Data API v3**.
+2. On the **OAuth consent screen**, choose **External**, and add the Google account that owns your channel as a **test user**.
+3. Under **Credentials**, create an **OAuth client ID** of type **Desktop app**. Download its JSON into this folder as `client_secret.json` (it's git-ignored).
+4. Run `./clipse connect youtube`. Google's sign-in page opens in your browser. If your channel is a Brand Account, pick the channel on the account chooser. Google warns that the app is unverified; continue, since it's your own project.
+
+The sign-in token is saved in `~/.config/clipse/` and stays on your machine.
+
+```bash
+./clipse post <clip.mp4>               # upload one clip
+./clipse post --auto                   # upload every clip you marked keep (k) that isn't uploaded yet
+./clipse post --auto --min-score 8     # …plus clips the judge rated 8/10 or higher
+./clipse post --auto --dry-run         # preview without uploading
+```
+
+In the TUI, `u` uploads the selected clip, and uploaded clips show `▶yt`.
+
+| Flag | Default |
+|---|---|
+| `--privacy` | `private`: you publish the clip yourself in YouTube Studio |
+| `--max` | 5 uploads per day |
+
+Each upload gets the judge's title plus `#Shorts`, the hook, and a "Clipped from" link to the moment in the stream.
+
+**Limits:**
+- **Uploads stay private until Google audits your project.** Google keeps uploads from unaudited API projects private no matter what you choose. Publish them in Studio, or apply for Google's free API audit.
+- **Daily quota:** the free API quota allows only a handful of uploads a day.
 
 ## How it works
 
@@ -104,6 +136,7 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `hinglish.py` | Hinglish transliteration and English translation of captions |
 | `render.py` | vertical render: blurred background, hook banner, captions, fade |
 | `hook.py` | hook intros (teaser cold-open + hook line) |
+| `youtube.py` | YouTube sign-in and Shorts uploads |
 | `progress.py` | `job.json` / `events.jsonl` progress events that the TUI follows |
 | `tui.py` | the terminal UI |
 
@@ -129,6 +162,7 @@ Not affiliated with or endorsed by YouTube, Google, Anthropic, or any creator.
 
 ## Notes
 
+- **Posting other people's streams:** even private uploads can get Content ID claims, and public ones can get copyright strikes (three strikes and the channel is removed). Only post clips you have rights to.
 - **API cost:** live mode calls the judge model on every spike that passes the threshold. Choose a cheaper judge, or raise `--sensitivity`, for long streams.
 
 ## License

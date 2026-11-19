@@ -131,6 +131,15 @@ def load_jobs() -> dict[str, Job]:
     return jobs
 
 
+def _on_youtube(file: str) -> bool:
+    try:
+        import youtube
+        p = Path(file) if Path(file).is_absolute() else HERE / file
+        return youtube.posted(p) is not None
+    except Exception:
+        return False
+
+
 def fmt_secs(s: float | None) -> str:
     if s is None:
         return "-"
@@ -195,6 +204,7 @@ class ClipperApp(App):
         Binding("p", "review('posted')", "Posted"),
         Binding("d", "delete_clip", "Delete"),
         Binding("h", "hook_clip", "Hook intro"),
+        Binding("u", "upload_clip", "Upload"),
         Binding("y", "open_moment", "On YouTube"),
         Binding("s", "stop_job", "Stop job"),
         Binding("tab", "focus_next", "Next pane", show=False),
@@ -256,7 +266,7 @@ class ClipperApp(App):
         ct = self.query_one("#clips", DataTable)
         ct.add_columns("Review", "From", "At", "Score", "Judge", "Title")
         self.query_one("#jobs").border_title = "Jobs  (Enter → clips · n new link · Tab switch)"
-        self.query_one("#clips").border_title = "Clips  (Enter play · k keep · x reject · p posted · d delete · y YouTube)"
+        self.query_one("#clips").border_title = "Clips  (Enter play · k keep · x reject · u upload · h hook · d delete · y YouTube)"
         self.query_one("#progress").border_title = "Progress"
         self.query_one("#newjob").border_title = "New job"
         self.refresh_all()
@@ -462,13 +472,14 @@ class ClipperApp(App):
             key = c.get("file") or f"skip:{i}"
             exists = bool(c.get("file")) and Path(HERE / c["file"]).exists() or (c.get("file") and Path(c["file"]).exists())
             state = review.get(key, "new")
+            on_yt = bool(c.get("file")) and _on_youtube(c["file"])
             part = {"live": "live", "from_start": "aired"}.get(c.get("part", ""), "vod")
             at = c.get("moment_local_time") or c.get("stream_time") or ""
             score = c.get("score", c.get("peak_z"))
             judge = ("skip" if c.get("skipped") or c.get("claude_skipped") else f"{c.get('virality', '-')}/10")
             title = c.get("title") or (c.get("skipped") or "")[:60]
             style = "dim strike" if (c.get("file") and not exists) else ("dim" if judge == "skip" else "")
-            rows.append((key, (REVIEW_STATES[state], part, at, "-" if score is None else f"{score:+.1f}",
+            rows.append((key, (REVIEW_STATES[state] + (" ▶yt" if on_yt else ""), part, at, "-" if score is None else f"{score:+.1f}",
                                judge, Text(title, style=style))))
         ready = sum(1 for c in clips if c.get("file"))
         ct.border_subtitle = f"🎬 {ready} clips ready" if ready else ""
@@ -537,6 +548,26 @@ class ClipperApp(App):
                 self.render_clips()
                 self.notify(f"Deleted {f.name}")
         self.push_screen(Confirm(f"Delete this clip file? This can't be undone.\n\n{f.name}"), go)
+
+    def action_upload_clip(self) -> None:
+        cur = self.current_clip()
+        f = cur and self._file(cur[1])
+        if not f:
+            self.notify("Pick a clip with a video first.", severity="warning")
+            return
+        import youtube
+        if not youtube.connected():
+            self.notify("Not connected. Run ./clipse connect youtube in a terminal first.", severity="warning")
+            return
+        if youtube.posted(f):
+            self.notify(f"Already on YouTube: {youtube.posted(f)['url']}")
+            return
+        logs = OUT / "_logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        subprocess.Popen([sys.executable, str(HERE / "clip.py"), "post", str(f)],
+                         stdout=open(logs / f"upload-{time.strftime('%H%M%S')}.log", "w"), stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(HERE))
+        self.notify("Uploading to YouTube as private — publish it in YouTube Studio.", title="Upload")
 
     def action_hook_clip(self) -> None:
         cur = self.current_clip()

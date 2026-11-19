@@ -1,5 +1,7 @@
 # secrets
 .env
+client_secret*.json
+*token*.json
 
 # outputs: clips, recordings, job logs (large, and contain other people's stream footage)
 out/
