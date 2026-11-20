@@ -43,6 +43,10 @@ Fonts are picked per system: Arial on macOS, and Noto or DejaVu on Linux (any in
 ./clipse models               # list the speech and judge models
 ./clipse restart <link>       # stop a live job and start it again with the same settings
 ./clipse restart <link> --clips 25 --style split   # …or with some settings changed
+./clipse restart <link> --redo-catchup             # …and clip the already-aired part again
+./clipse discover "<query>" … # find videos to clip (see below)
+./clipse connect youtube|instagram   # sign in once for posting
+./clipse post …               # post clips you already have (see Posting)
 ```
 
 Run the TUI in a normal terminal (Terminal, iTerm, …). Some embedded terminal panels don't pass mouse clicks through, but everything also works from the keyboard.
@@ -76,7 +80,9 @@ The TUI offers the same choices next to the link box.
 | `--judge` | claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-fable-5-2, none | claude-opus-5-5 |
 | `--captions` | hinglish (Hindi in Roman script), english (translated if needed), original (as spoken; `hindi` = Devanagari) | hinglish |
 | `--post-to` | `youtube`, `instagram` or `both`: upload every clip the moment it's made. YouTube uploads are private; Instagram Reels are public. Clips the judge skips are never posted | none |
-| `--post-max` | max auto-posts per platform per day, shared by all jobs | 40 |
+| `--post-max` | max auto-posts per platform per day, shared by all jobs (see [Daily limits](#daily-limits)) | 40 |
+| `--post-privacy` | YouTube visibility for auto-posts: private, unlisted, public | private |
+| `--post-profile` | hashtags and keywords file (see [Posting](#posting-to-youtube)) | none |
 | `--speed` | play every clip faster, e.g. `1.5` or `2`; the voice keeps its normal pitch | 1 |
 | `--hook-intro` | open each clip with its best 2.5 s and a hook line, then the full clip | off |
 | `--clips` | clips from a finished stream, or from the already-aired part of a live one | 5 |
@@ -177,7 +183,7 @@ In the TUI, `u` uploads the selected clip at the speed picked in the **speed** b
 | Flag | Default |
 |---|---|
 | `--privacy` | `private`: you publish the clip yourself in YouTube Studio |
-| `--max` | 5 uploads per day |
+| `--max` | 40 uploads per day |
 
 Each upload gets the judge's title plus `#Shorts`, the hook, and a "Clipped from" link to the moment in the stream.
 
@@ -207,7 +213,21 @@ clipse can publish clips as Reels through the official Instagram API. It's free,
 ./clipse post --auto --to both --speed 1.5          # YouTube and Instagram, at 1.5x
 ```
 
-**Reels are public as soon as they're posted;** Instagram has no private uploads. So `--auto` only posts clips you marked **keep**, never clips chosen by judge score alone. Instagram allows 100 API posts per account per day.
+**Reels are public as soon as they're posted;** Instagram has no private uploads. So `--auto` posts only clips you marked **keep**, plus clips from jobs you started with `--post-to instagram` (or `both`) that the daily limit held back. It never posts clips chosen by judge score alone. Instagram allows 100 API posts per account per day.
+
+If Meta's upload server fails or the connection drops, the upload is retried up to 3 times. A clip that still fails is skipped, and the rest of the batch carries on.
+
+## Daily limits
+
+- **One count for all jobs:** every job and `clipse post` share each platform's daily count (default 40, set with `--post-max` / `--max`). Several jobs uploading at once can overshoot it by a few posts.
+- **When it resets:** the count goes by UTC day, so it resets at midnight UTC (05:30 IST).
+- **YouTube's own limit:** when the channel hits it, YouTube auto-posts stop for that run. Clipping carries on.
+- **Held clips:** once a limit is reached, new clips are still made and saved, marked "left for `clipse post --auto`". After the reset, post the backlog, best clips first:
+
+```bash
+./clipse post --auto --to instagram --dry-run   # see what would go out
+./clipse post --auto --to instagram             # post up to today's limit
+```
 
 ## How it works
 
@@ -215,6 +235,8 @@ clipse can publish clips as Reels through the official Instagram API. It's free,
   - **Chat:** real chat activity counts. Bot commands, code/PS5/shoutout requests, greetings, vote waves and copy-paste are filtered out.
   - **Scoring:** chat is combined with how much louder the streamer got (70% chat, 30% voice). Chat delay is measured for each stream, so a spike is only scored once its chat has arrived.
   - **Recording:** clips are cut from a rolling 10-minute buffer, which is deleted when the run ends.
+  - **Chat reconnect:** if the chat reader drops while the stream is still on, it reconnects by itself within about 30 s.
+  - **Judging a spike:** the judge gets the transcript, the filtered chat and a tally of chat reactions (W vs L waves, 💀, "aura", laughs). It knows stream slang: a wave of W or L is the crowd reacting, not spam. It also sees 6 screenshots from around the moment, so it can tell what happened on screen, not only what was said.
 - **Already-aired part of a live stream:** downloaded from YouTube's DVR in numbered chunks (their length is read for each stream), ranked by loudness plus transcript. Each clip is then captioned from its own audio.
 - **Finished streams:** chat replay, YouTube's "most replayed" data and loudness.
 
