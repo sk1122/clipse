@@ -1,26 +1,21 @@
 """Auto-post every new clip a job makes, as soon as it's rendered (`clipse run --post-to ...`).
 
-Uploads run one at a time on a background thread, so a slow upload never holds up live clipping. Clips the
-judge skipped are never posted. Each platform's daily cap is respected; when it's reached, the rest are
-left for `clipse post --auto` later.
+Clips go into the shared posting queue (postqueue.py); one background poster uploads them spread across
+the day, best first, within each platform's daily cap. Clips the judge skipped are never posted.
 """
 from __future__ import annotations
 
-import queue
-import threading
 from pathlib import Path
 
+import postqueue
 import progress
 
-_q: queue.Queue = queue.Queue()
-_worker: threading.Thread | None = None
 _cfg: dict = {}
 
 
-def start(platforms: list[str], info: dict, url: str, privacy: str = "private", max_per_day: int = 5,
-          prof: dict | None = None) -> list[str]:
+def start(platforms: list[str], info: dict, url: str, privacy: str = "private", max_per_day: int = 40,
+          prof: dict | None = None, gap_min: float = 0, hours: str = postqueue.DEFAULT_HOURS) -> list[str]:
     """Begin auto-posting. Returns the platforms that are actually connected and will be used."""
-    global _worker
     import instagram
     import youtube
     usable = []
@@ -35,19 +30,26 @@ def start(platforms: list[str], info: dict, url: str, privacy: str = "private", 
             usable.append(p)
     if not usable:
         return []
-    _cfg.update(platforms=usable, info=info, url=url, privacy=privacy, max_per_day=max_per_day, prof=prof or {})
+    _cfg.update(platforms=usable, info=info, url=url, privacy=privacy, max_per_day=max_per_day, prof=prof or {},
+                gap=gap_min, hours=hours)
     progress.on_clip(_enqueue)
-    _worker = threading.Thread(target=_run, daemon=True)
-    _worker.start()
+    gap = postqueue.gap_seconds(max_per_day, gap_min, hours) / 60
     print(f"  Auto-posting new clips to: {', '.join(usable)}"
           + (" (YouTube: private)" if "youtube" in usable and privacy == "private" else "")
-          + (" (Instagram: public)" if "instagram" in usable else ""))
+          + (" (Instagram: public)" if "instagram" in usable else "")
+          + f"\n  Posts are spread out: best clip first, one every ~{gap:.0f} min, {hours} h, max {max_per_day}/day")
     return usable
 
 
 def _enqueue(clip: dict) -> None:
-    if clip.get("file") and not clip.get("skipped") and not clip.get("claude_skipped"):
-        _q.put(clip)
+    if not clip.get("file") or clip.get("skipped") or clip.get("claude_skipped"):
+        return
+    for p in _cfg["platforms"]:
+        if postqueue.add(clip["file"], p, clip, _source(clip), prof=_cfg["prof"], privacy=_cfg["privacy"],
+                         max_per_day=_cfg["max_per_day"], gap_min=_cfg["gap"], hours=_cfg["hours"]):
+            print(f"    [{p}] queued {Path(clip['file']).name}")
+            progress.emit("post_queued", platform=p, file=clip["file"])
+    postqueue.ensure_poster()
 
 
 def _source(clip: dict) -> str | None:
@@ -57,48 +59,8 @@ def _source(clip: dict) -> str | None:
     return url
 
 
-def _run() -> None:
-    import instagram
-    import youtube
-    while True:
-        clip = _q.get()
-        if clip is None:
-            _q.task_done()
-            return
-        f = Path(clip["file"])
-        for p in list(_cfg["platforms"]):
-            mod = youtube if p == "youtube" else instagram
-            try:
-                if mod.posted(f):
-                    continue
-                today = youtube.uploads_today() if p == "youtube" else instagram.posts_today()
-                if today >= _cfg["max_per_day"]:
-                    msg = f"daily limit ({_cfg['max_per_day']}) reached — {f.name} left for `clipse post --auto`"
-                    print(f"    [{p}] {msg}")
-                    progress.emit("post_error", platform=p, file=str(f), message=msg)
-                    continue
-                print(f"    [{p}] posting {f.name}…")
-                if p == "youtube":
-                    rec = youtube.upload(f, clip, _source(clip), _cfg["privacy"], prof=_cfg["prof"])
-                else:
-                    rec = instagram.upload(f, clip, _source(clip), prof=_cfg["prof"])
-                progress.emit("posted", platform=p, file=str(f), url=rec.get("url"),
-                              privacy=rec.get("privacy", "public"))
-            except youtube.LimitReached as e:
-                print(f"    [{p}] {e} Stopping YouTube auto-posts for this run.")
-                progress.emit("post_error", platform=p, file=str(f), message=str(e))
-                _cfg["platforms"] = [x for x in _cfg["platforms"] if x != "youtube"]
-            except Exception as e:     # one failed upload must never stop clipping
-                msg = f"{type(e).__name__}: {str(e)[:200]}"
-                print(f"    [{p}] ✗ upload failed: {msg}")
-                progress.emit("post_error", platform=p, file=str(f), message=msg)
-        _q.task_done()
-
-
 def finish() -> None:
-    """Wait for queued uploads to finish (called when the job ends)."""
-    if _worker and _worker.is_alive():
-        if _q.unfinished_tasks:
-            print(f"Finishing {_q.unfinished_tasks} upload(s)…")
-        _q.put(None)
-        _worker.join()
+    """Called when the job ends. Queued clips keep posting from the background poster."""
+    if _cfg.get("platforms"):
+        for line in postqueue.status():
+            print(f"  {line}")

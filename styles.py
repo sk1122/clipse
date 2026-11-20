@@ -129,7 +129,8 @@ def _cam_crop(cam, aspect: float, src_w: int, src_h: int) -> tuple[int, int, int
     return x // 2 * 2, y // 2 * 2, cw // 2 * 2, ch // 2 * 2
 
 
-def build(style: str, cam, src_w: int, src_h: int, title_h: int) -> Layout:
+def build(style: str, cam, src_w: int, src_h: int, title_h: int, follow: list[tuple[float, int]] | None = None) -> Layout:
+    """follow: face positions over time (fullscreen with a full-frame camera): the crop glides with the face."""
     sharpen = "unsharp=5:5:0.7"
     if style == "split":
         top_h = 960
@@ -155,7 +156,15 @@ def build(style: str, cam, src_w: int, src_h: int, title_h: int) -> Layout:
         return Layout(f, True, cam_h - 230, "reaction")
     if style == "fullscreen":
         gx, gy, gw, gh = _content_crop(cam, src_w, src_h, W / H)
-        fill = f"crop={gw}:{gh}:{gx}:{gy},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
+        x = str(gx)
+        if follow and (cam is None or cam.full_frame) and gw < src_w:
+            import facecam
+            keys = facecam.camera_path(follow, follow[-1][0] + 1, src_w, gw)
+            if len(keys) > 2:
+                x = "'" + facecam.x_expr(keys) + "'"
+            elif keys:
+                x = str(keys[0][1])
+        fill = f"crop={gw}:{gh}:{x}:{gy},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
         f = f"[0:v]{fill}"
         if cam is not None and not cam.full_frame:       # webcam bubble in the top corner
             cx, cy, cw, ch = _cam_crop(cam, 4 / 3, src_w, src_h)

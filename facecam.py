@@ -225,9 +225,92 @@ def _detect(src: Path, start: float, length: float) -> Box | None:
     return Box(*box, False, fx + fw // 2, fy + fh // 2).scaled(scale)
 
 
+def _track(src: Path, start: float, length: float, step: float = 0.5) -> list[tuple[float, int]]:
+    """Where the main face is (x centre, source pixels) every `step` seconds. The biggest face wins, but the
+    one we were already following keeps it unless another is clearly bigger, so the crop doesn't flip."""
+    import cv2
+    det = cv2.CascadeClassifier(os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml"))
+    cap = cv2.VideoCapture(str(src))
+    out, prev = [], None
+    t = 0.0
+    while t < length:
+        cap.set(cv2.CAP_PROP_POS_MSEC, (start + t) * 1000)
+        ok, fr = cap.read()
+        if not ok:
+            break
+        scale = fr.shape[1] / SAMPLE_W
+        g = cv2.equalizeHist(cv2.cvtColor(cv2.resize(fr, (SAMPLE_W, int(fr.shape[0] / scale))), cv2.COLOR_BGR2GRAY))
+        faces = det.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(40, 40))
+        if len(faces):
+            faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+            pick = faces[0]
+            if prev is not None:
+                near = min(faces, key=lambda f: abs(f[0] + f[2] / 2 - prev))
+                if near[2] * near[3] * 1.8 >= pick[2] * pick[3]:
+                    pick = near
+            prev = pick[0] + pick[2] / 2
+            out.append((round(t, 2), int(prev * scale)))
+        t += step
+    cap.release()
+    return out
+
+
+def track(src: Path, start: float, length: float) -> list[tuple[float, int]]:
+    """Face positions over the clip, detected in a separate process (see _find)."""
+    import json
+    import subprocess
+    import sys
+    r = subprocess.run([sys.executable, __file__, "track", str(src), str(start), str(length)],
+                       capture_output=True, text=True, timeout=300)
+    try:
+        return [tuple(x) for x in json.loads(r.stdout.strip().splitlines()[-1])]
+    except (ValueError, IndexError):
+        return []
+
+
+def camera_path(points: list[tuple[float, int]], length: float, src_w: int, crop_w: int,
+                dead: float = 0.08, max_keys: int = 40) -> list[tuple[float, int]]:
+    """Turn raw face positions into calm camera moves: (time, crop x) keyframes. Jitter is smoothed away,
+    the camera holds still until the face moves more than `dead` of the frame width, then glides over ~0.6 s."""
+    if len(points) < 3:
+        return []
+    xs = np.array([p[1] for p in points], float)
+    ts = np.array([p[0] for p in points], float)
+    k = 2                                                   # median filter: one-off misdetections vanish
+    xs = np.array([np.median(xs[max(0, i - k):i + k + 1]) for i in range(len(xs))])
+    lo, hi = 0, src_w - crop_w
+    to_x = lambda c: int(min(max(lo, c - crop_w / 2), hi)) // 2 * 2
+    keys = [(0.0, to_x(xs[0]))]
+    cur = xs[0]
+    for t, x in zip(ts[1:], xs[1:]):
+        if abs(x - cur) > dead * src_w:
+            keys.append((max(keys[-1][0] + 0.05, t - 0.6), keys[-1][1]))   # hold, then glide
+            keys.append((t, to_x(x)))
+            cur = x
+    keys.append((length, keys[-1][1]))
+    if len(keys) > max_keys:                                 # too busy: keep the biggest moves
+        keys = keys[:1] + keys[1:-1][: max_keys - 2] + keys[-1:]
+    return keys
+
+
+def x_expr(keys: list[tuple[float, int]]) -> str:
+    """An ffmpeg expression in t for the crop x, gliding between keyframes."""
+    expr = str(keys[-1][1])
+    for (t0, x0), (t1, x1) in reversed(list(zip(keys, keys[1:]))):
+        if x0 == x1:
+            seg = str(x0)
+        else:
+            seg = f"{x0}+({x1 - x0})*(t-{t0:.2f})/{max(0.01, t1 - t0):.2f}"
+        expr = f"if(lt(t,{t1:.2f}),{seg},{expr})"
+    return expr
+
+
 if __name__ == "__main__":
     import json
     import sys
     from dataclasses import asdict
-    b = _detect(Path(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]))
-    print(json.dumps(asdict(b) if b else None))
+    if sys.argv[1] == "track":
+        print(json.dumps(_track(Path(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]))))
+    else:
+        b = _detect(Path(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]))
+        print(json.dumps(asdict(b) if b else None))

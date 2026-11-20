@@ -154,6 +154,18 @@ def _on_instagram(file: str) -> bool:
         return False
 
 
+def _queued(file: str) -> set[str]:
+    try:
+        p = Path(file) if Path(file).is_absolute() else HERE / file
+        f = str(p.resolve())
+        return {i["platform"] for i in _QUEUE_CACHE.get("items", []) if i["file"] == f}
+    except Exception:
+        return set()
+
+
+_QUEUE_CACHE: dict = {}
+
+
 def fmt_secs(s: float | None) -> str:
     if s is None:
         return "-"
@@ -206,12 +218,16 @@ class DiscoverScreen(ModalScreen[list]):
             yield DataTable(id="dres", cursor_type="row", zebra_stripes=True)
             with Horizontal(id="dbtns"):
                 yield Button("Close", id="dclose")
+                yield Button("Autopilot", id="dauto", variant="warning",
+                             tooltip="Keep searching these queries every 30 min and start jobs on the best new "
+                                     "streams (New job settings, max 6 jobs). Press again to stop it.")
                 yield Button("Clip ticked", id="dgo", variant="success")
 
     def on_mount(self) -> None:
         t = self.query_one("#dres", DataTable)
         t.add_columns("✓", "Score", "Length", "Channel", "Title", "Found by")
         self.query_one("#dbox").border_title = "Discover videos  (space tick · Clip ticked uses the New job settings)"
+        self._auto_label()
 
     @on(Button.Pressed, "#dsearch")
     def search(self) -> None:
@@ -279,6 +295,40 @@ class DiscoverScreen(ModalScreen[list]):
             self.notify("Tick some videos first (space).", severity="warning")
             return
         self.dismiss(urls)
+
+    def _auto_label(self) -> None:
+        import discover
+        st = discover.autopilot_status()
+        self.query_one("#dauto", Button).label = "Stop autopilot" if st and st.get("running") else "Autopilot"
+
+    @on(Button.Pressed, "#dauto")
+    def autopilot(self) -> None:
+        import signal
+        from textual.widgets import TextArea
+        import discover
+        st = discover.autopilot_status()
+        if st and st.get("running"):
+            os.kill(st["pid"], signal.SIGTERM)
+            self.notify("Autopilot stopped. Jobs it started keep running.", title="Autopilot")
+            self.query_one("#dauto", Button).label = "Autopilot"
+            return
+        queries = [q.strip() for q in self.query_one("#dq", TextArea).text.splitlines()
+                   if q.strip() and not q.strip().startswith("#")]
+        if not queries:
+            self.notify("Type at least one query.", severity="warning")
+            return
+        self.SAVED.parent.mkdir(parents=True, exist_ok=True)
+        self.SAVED.write_text("\n".join(queries) + "\n")
+        mode = str(self.query_one("#dmode", Select).value)
+        log = OUT / "_logs" / f"{time.strftime('%Y%m%d-%H%M%S')}-autopilot.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.Popen([sys.executable, "-u", str(HERE / "clip.py"), "autopilot", "--queries-file", str(self.SAVED),
+                          "--mode", mode, "--with", *self.app.job_flags()],
+                         stdout=open(log, "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                         start_new_session=True, cwd=str(HERE))
+        self.notify(f"Autopilot on: searching {len(queries)} queries ({mode}) every 30 min, up to 6 jobs, "
+                    "with the New job settings.", title="Autopilot", timeout=8)
+        self.query_one("#dauto", Button).label = "Stop autopilot"
 
     @on(Button.Pressed, "#dclose")
     def action_close(self) -> None:
@@ -392,6 +442,11 @@ class ClipperApp(App):
                 yield Select([("karaoke + zoom", "both"), ("karaoke captions", "karaoke"), ("zoom punch", "zoom"),
                               ("none", "none")], value="both", allow_blank=False, id="fx",
                              tooltip="Word-by-word captions and a zoom-in on the loudest moment")
+                yield Label("edits", classes="lbl")
+                yield Select([("cuts + sfx + loop", "all"), ("jump cuts", "cuts"), ("sound effects", "sfx"),
+                              ("loop ending", "loop"), ("none", "none")], value="all", allow_blank=False, id="edits",
+                             tooltip="Jump cuts trim dead air · whoosh + boom on the punchline · "
+                                     "the end fades into the first frame so replays loop")
                 yield Label("filter", classes="lbl")
                 yield Select([(n, n) for n in ("none", "vivid", "cinematic", "warm", "cool", "bw", "vintage",
                                                "dramatic")], value="none", allow_blank=False, id="filter",
@@ -453,10 +508,11 @@ class ClipperApp(App):
         self.query_one("#jobs", DataTable).focus()
         self.notify("Job started — it keeps running even if you close clipse.", title="Starting")
 
-    def launch(self, url: str, quiet: bool = False) -> None:
-        """Start a clipping job for `url` with the settings currently chosen in the New job panel."""
-        cmd = [sys.executable, str(HERE / "clip.py"), "run", url,
-               "--speech-model", str(self.query_one("#speech", Select).value),
+    def job_flags(self) -> list[str]:
+        """Run flags for the settings currently chosen in the New job panel."""
+        edits = str(self.query_one("#edits", Select).value)
+        on = lambda k: edits == "all" or edits == k
+        return ["--speech-model", str(self.query_one("#speech", Select).value),
                "--judge", str(self.query_one("#judge", Select).value),
                "--captions", str(self.query_one("#captions", Select).value),
                *(["--hook-intro"] if self.query_one("#intro", Select).value == "teaser" else []),
@@ -468,7 +524,13 @@ class ClipperApp(App):
                "--karaoke" if self.query_one("#fx", Select).value in ("both", "karaoke") else "--no-karaoke",
                "--zoom-punch" if self.query_one("#fx", Select).value in ("both", "zoom") else "--no-zoom-punch",
                "--clips", self.query_one("#nclips", Input).value.strip() or "5",
-               "--sensitivity", self.query_one("#sens", Input).value.strip() or "2.5"]
+               "--sensitivity", self.query_one("#sens", Input).value.strip() or "2.5",
+               "--jump-cuts" if on("cuts") else "--no-jump-cuts", "--sfx" if on("sfx") else "--no-sfx",
+               "--loop" if on("loop") else "--no-loop"]
+
+    def launch(self, url: str, quiet: bool = False) -> None:
+        """Start a clipping job for `url` with the settings currently chosen in the New job panel."""
+        cmd = [sys.executable, str(HERE / "clip.py"), "run", url, *self.job_flags()]
         post_to = str(self.query_one("#postto", Select).value)
         if post_to != "none" and not quiet:
             import instagram
@@ -491,6 +553,18 @@ class ClipperApp(App):
 
     # ---- refresh
     def refresh_all(self) -> None:
+        if time.time() - _QUEUE_CACHE.get("at", 0) > 10:
+            try:
+                import discover
+                import postqueue
+                _QUEUE_CACHE.update(at=time.time(), items=postqueue.pending())
+                bits = postqueue.status()
+                st = discover.autopilot_status()
+                if st and st.get("running"):
+                    bits.append(f"autopilot on ({st['mode']}, every {st['every']:g} min)")
+                self.sub_title = " · ".join(bits)
+            except Exception:
+                pass
         fresh = load_jobs()
         for k, j in fresh.items():
             if k in self.jobs:
@@ -674,13 +748,16 @@ class ClipperApp(App):
             state = review.get(key, "new")
             on_yt = bool(c.get("file")) and _on_youtube(c["file"])
             on_ig = bool(c.get("file")) and _on_instagram(c["file"])
+            q = _queued(c["file"]) if c.get("file") else set()
+            marks = (" ▶yt" if on_yt else " ⏳yt" if "youtube" in q else "") + \
+                    (" ▶ig" if on_ig else " ⏳ig" if "instagram" in q else "")
             part = {"live": "live", "from_start": "aired"}.get(c.get("part", ""), "vod")
             at = c.get("moment_local_time") or c.get("stream_time") or ""
             score = c.get("score", c.get("peak_z"))
             judge = ("skip" if c.get("skipped") or c.get("claude_skipped") else f"{c.get('virality', '-')}/10")
             title = c.get("title") or (c.get("skipped") or "")[:60]
             style = "dim strike" if (c.get("file") and not exists) else ("dim" if judge == "skip" else "")
-            rows.append((key, (REVIEW_STATES[state] + (" ▶yt" if on_yt else "") + (" ▶ig" if on_ig else ""), part, at, "-" if score is None else f"{score:+.1f}",
+            rows.append((key, (REVIEW_STATES[state] + marks, part, at, "-" if score is None else f"{score:+.1f}",
                                judge, Text(title, style=style))))
         ready = sum(1 for c in clips if c.get("file"))
         ct.border_subtitle = f"🎬 {ready} clips ready" if ready else ""

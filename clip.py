@@ -58,6 +58,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("tui", help="open the terminal UI")
     sub.add_parser("models", help="list speech and judge models")
+    apl = sub.add_parser("autopilot", help="keep finding streams and clipping them on its own")
+    apl.add_argument("queries", nargs="*", help="search queries (or use --queries-file)")
+    apl.add_argument("--queries-file", help="a text file with one query per line")
+    apl.add_argument("--mode", default="live", choices=["live", "week", "popular"])
+    apl.add_argument("--every", type=float, default=30, help="minutes between searches (default 30)")
+    apl.add_argument("--min-viewers", type=int, default=1000, help="live: only streams with this many watching (default 1000)")
+    apl.add_argument("--max-jobs", type=int, default=6, help="most clipping jobs running at once, all jobs counted (default 6)")
+    apl.add_argument("--quiet", type=float, default=90,
+                    help="stop a live job it started after this many minutes without a clip (default 90)")
+    apl.add_argument("--expand", type=int, default=0, help="have the judge write this many extra queries once")
+    apl.add_argument("--judge", default="claude-haiku-5-5", choices=[m for m in JUDGE_MODELS if m != "none"])
+    apl.add_argument("--status", action="store_true", help="show what autopilot is doing, then exit")
+    apl.add_argument("--stop", action="store_true", help="stop autopilot (jobs it started keep running)")
+    apl.add_argument("--with", dest="run_flags", nargs=argparse.REMAINDER, default=[],
+                    help="run flags for every job it starts, e.g. --with --clips 25 --style split --post-to instagram")
     dv = sub.add_parser("discover", help="search YouTube for videos worth clipping (and optionally clip them)")
     dv.add_argument("queries", nargs="*", help="search queries (or use --queries-file)")
     dv.add_argument("--queries-file", help="a text file with one query per line")
@@ -103,6 +118,13 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--profile", help="JSON file with hashtags and keywords for captions (see profiles/)")
     po.add_argument("--dry-run", action="store_true", help="show what would be uploaded, upload nothing")
     po.add_argument("--force", action="store_true", help="upload even if this clip was uploaded before")
+    po.add_argument("--now", action="store_true",
+                    help="upload right away, one after another, instead of queueing them to be spread out")
+    po.add_argument("--gap", type=float, default=0, help="minutes between queued posts (default: spread over --hours)")
+    po.add_argument("--hours", default="9-1", help="local posting hours for queued posts, e.g. 9-1 (default)")
+    pq = sub.add_parser("poster", help="post queued clips at their time slots (started automatically)")
+    pq.add_argument("--status", action="store_true", help="show what's queued and when it posts next, then exit")
+    pq.add_argument("--clear", action="store_true", help="empty the posting queue (nothing is deleted)")
     r = sub.add_parser("run", help="clip a YouTube stream or video")
     r.add_argument("url", help="YouTube link (live or finished)")
 
@@ -132,6 +154,16 @@ def build_parser() -> argparse.ArgumentParser:
                    help="word-by-word captions with the spoken word highlighted (default on)")
     c.add_argument("--zoom-punch", action=argparse.BooleanOptionalAction, default=True,
                    help="quick zoom-in on the loudest moment (default on)")
+    c.add_argument("--jump-cuts", action=argparse.BooleanOptionalAction, default=True,
+                   help="trim dead air (quiet stretches) so the pace never drops (default on)")
+    c.add_argument("--sfx", action=argparse.BooleanOptionalAction, default=True,
+                   help="whoosh as the clip starts and a deep boom on the punchline (default on)")
+    c.add_argument("--loop", action=argparse.BooleanOptionalAction, default=True,
+                   help="end by fading into the first frame, so replays look seamless (default on)")
+    c.add_argument("--follow-face", action=argparse.BooleanOptionalAction, default=True,
+                   help="when the camera is the whole picture (IRL, vlogs), the crop follows the main face (default on)")
+    c.add_argument("--junk-filter", action=argparse.BooleanOptionalAction, default=True,
+                   help="drop clips that are mostly loading screens, menus, frozen or black footage (default on)")
     c.add_argument("--filter", default="none",
                    choices=["none", "vivid", "cinematic", "warm", "cool", "bw", "vintage", "dramatic"],
                    help="colour look for the footage (titles and captions keep their colours). Default none")
@@ -148,6 +180,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--post-profile", help="JSON file with hashtags (funny / highlight) and keywords to add to "
                    "captions, e.g. profiles/gta6.json")
     c.add_argument("--post-max", type=int, default=40, help="max auto-posts per platform per day, shared by all jobs (default 40)")
+    c.add_argument("--post-gap", type=float, default=0,
+                   help="minutes between auto-posts (default: the posting hours spread evenly over --post-max)")
+    c.add_argument("--post-hours", default="9-1", help="local hours to post in, e.g. 9-1 = 09:00 to 01:00 (default)")
     c.add_argument("--speed", type=float, default=1.0,
                    help="play every clip faster, e.g. 1.5 or 2 (voice pitch is kept). Default 1")
     c.add_argument("--hook-intro", action="store_true",
@@ -232,6 +267,25 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if a.cmd == "post":
         return run_post(a)
+    if a.cmd == "poster":
+        import postqueue
+        if a.clear:
+            n = len(postqueue.pending())
+            postqueue._save([])
+            print(f"Cleared {n} queued post(s).")
+            return 0
+        if a.status:
+            items = postqueue.pending()
+            for line in postqueue.status() or ["Nothing queued."]:
+                print(line)
+            for i in sorted(items, key=postqueue._priority, reverse=True)[:30]:
+                print(f"  {postqueue._priority(i):5.1f}  {i['platform']:9}  {Path(i['file']).name}")
+            print("Poster: " + ("running" if postqueue.poster_running() else "not running"))
+            return 0
+        postqueue.run_poster()
+        return 0
+    if a.cmd == "autopilot":
+        return run_autopilot(a)
     if a.cmd == "discover":
         return run_discover(a)
     if a.cmd == "restart":
@@ -306,6 +360,22 @@ def run_post(a) -> int:
         if not todo:
             print("Nothing to upload (mark clips with k in the TUI" + (", or use --min-score)." if plat == "youtube" else ")."))
             continue
+        if not (a.now or a.dry_run or a.force or a.speed != 1):
+            import postqueue                             # spread them out: the background poster posts at slots
+            n = 0
+            for f, e, j in todo:
+                jp = prof or profile.load((j.get("settings") or {}).get("post_profile"))
+                src = j.get("url")
+                if src and e.get("start") is not None and e.get("part") != "live":
+                    src = f"https://youtu.be/{j.get('id')}?t={int(e['start'])}"
+                n += postqueue.add(f, plat, e, src, prof=jp, privacy=a.privacy, max_per_day=a.max,
+                                   gap_min=a.gap, hours=a.hours)
+            print(f"Queued {n} new clip(s) ({len(todo)} waiting in all), best first. "
+                  "They post spread across the day; --now posts them right away.")
+            postqueue.ensure_poster()
+            for line in postqueue.status():
+                print("  " + line)
+            continue
         done_today = 0
         if not a.dry_run and mod.connected():
             done_today = youtube.uploads_today() if plat == "youtube" else instagram.posts_today()
@@ -355,8 +425,11 @@ _FLAG_FOR = {"speech_model": "--speech-model", "judge": "--judge", "captions": "
              "filter": "--filter", "music": "--music", "post_profile": "--post-profile", "speed": "--speed",
              "post_to": "--post-to", "clips": "--clips", "sensitivity": "--sensitivity", "min_len": "--min-len",
              "max_len": "--max-len", "duration": "--duration", "post_max": "--post-max",
-             "post_privacy": "--post-privacy", "music_volume": "--music-volume"}
+             "post_privacy": "--post-privacy", "post_gap": "--post-gap", "post_hours": "--post-hours", "music_volume": "--music-volume"}
 _SWITCH_FOR = {"karaoke": ("--karaoke", "--no-karaoke"), "zoom_punch": ("--zoom-punch", "--no-zoom-punch"),
+               "jump_cuts": ("--jump-cuts", "--no-jump-cuts"), "sfx": ("--sfx", "--no-sfx"),
+               "loop": ("--loop", "--no-loop"), "follow_face": ("--follow-face", "--no-follow-face"),
+               "junk_filter": ("--junk-filter", "--no-junk-filter"),
                "hook_intro": ("--hook-intro", None), "landscape": ("--landscape", None),
                "no_from_start": ("--no-from-start", None)}
 
@@ -419,16 +492,53 @@ def run_discover(a) -> int:
         print(f"       {v['url']}   ({len(v['queries'])} queries: {', '.join(v['queries'][:2])}{'…' if len(v['queries']) > 2 else ''})")
     if a.run:
         flags = [x for x in a.run_flags if x != "--"]
-        logs = HERE / "out" / "_logs"
-        logs.mkdir(parents=True, exist_ok=True)
         print()
         for v in found[:a.run]:
-            log = logs / f"{time.strftime('%Y%m%d-%H%M%S')}-{v['id']}.log"
-            p = subprocess.Popen([sys.executable, "-u", str(HERE / "clip.py"), "run", v["url"], *flags],
-                                 stdout=open(log, "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                 start_new_session=True, cwd=str(HERE))
-            print(f"▶ started clipping {v['channel']}: {v['title'][:50]}  (pid {p.pid})")
+            pid = discover.launch(v["url"], flags)
+            print(f"▶ started clipping {v['channel']}: {v['title'][:50]}  (pid {pid})")
             time.sleep(1)
+    return 0
+
+
+def run_autopilot(a) -> int:
+    import signal
+    import time
+    import discover
+    st = discover.autopilot_status()
+    if a.stop:
+        if st and st["running"]:
+            os.kill(st["pid"], signal.SIGTERM)
+            print("Autopilot stopped (its jobs keep running; stop them in the TUI or with `kill`).")
+        else:
+            print("Autopilot isn't running.")
+        return 0
+    if a.status:
+        if not st:
+            print("Autopilot has never run.")
+            return 0
+        print(f"Autopilot: {'running' if st['running'] else 'stopped'} · {st['mode']} · every {st['every']:g} min · "
+              f"max {st['max_jobs']} jobs · {st['rounds']} rounds")
+        if st["running"] and st.get("next_round"):
+            print(f"  next search {time.strftime('%H:%M', time.localtime(st['next_round']))}")
+        for vid, j in st["jobs"].items():
+            alive = discover._alive(j["pid"])
+            print(f"  {'●' if alive else '○'} {j['channel'][:18]:18s} {j['title'][:55]}")
+        return 0
+    queries = list(a.queries)
+    if a.queries_file:
+        queries += [l.strip() for l in Path(a.queries_file).read_text().splitlines()
+                    if l.strip() and not l.strip().startswith("#")]
+    if not queries:
+        print("Give some search queries, or --queries-file.")
+        return 1
+    flags = [x for x in a.run_flags if x != "--"]
+    print(f"Autopilot: searching {len(queries)} queries ({a.mode}) every {a.every:g} min, up to {a.max_jobs} jobs. "
+          "Ctrl-C to stop (jobs keep running).")
+    try:
+        discover.autopilot(queries, a.mode, flags, a.every, a.min_viewers, a.max_jobs, a.quiet,
+                           a.expand, a.judge)
+    except KeyboardInterrupt:
+        print("Autopilot stopped.")
     return 0
 
 
@@ -515,6 +625,8 @@ def run(a) -> int:
     render.CAPTION_LANG = picker.CAPTION_LANG = a.captions
     render.HOOK_INTRO = a.hook_intro
     render.STYLE, render.KARAOKE, render.ZOOM_PUNCH = a.style, a.karaoke, a.zoom_punch
+    render.JUMP_CUTS, render.SFX, render.LOOP = a.jump_cuts, a.sfx, a.loop
+    render.FOLLOW_FACE, render.JUNK_FILTER = a.follow_face, a.junk_filter
     render.FILTER, render.MUSIC, render.MUSIC_VOLUME = a.filter, a.music, a.music_volume
     render.SPEED = a.speed
     hinglish.MODEL = None if a.no_ai else a.judge
@@ -535,7 +647,7 @@ def run(a) -> int:
     info = sources.fetch_info(a.url, tmp)
     out_dir = out_root / info["id"]
     is_live = info.get("is_live") or info.get("live_status") == "is_live"
-    settings = {"argv": [x for x in a.argv if x]} | {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "style", "karaoke", "zoom_punch", "filter", "music", "post_profile", "hook_intro", "speed", "post_to", "post_max", "post_privacy", "music_volume", "clips", "sensitivity", "min_len",
+    settings = {"argv": [x for x in a.argv if x]} | {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "style", "karaoke", "zoom_punch", "jump_cuts", "sfx", "loop", "follow_face", "junk_filter", "filter", "music", "post_profile", "hook_intro", "speed", "post_to", "post_max", "post_gap", "post_hours", "post_privacy", "music_volume", "clips", "sensitivity", "min_len",
                                            "max_len", "landscape", "no_from_start", "duration")}
     progress.setup(out_dir, a.url, info, "live" if is_live else "vod", settings)
     (tmp / "info.json").unlink(missing_ok=True)
@@ -546,7 +658,8 @@ def run(a) -> int:
         if a.no_ai:
             print("  Note: no judge model — every clip found will be posted.")
         import postprofile as profile
-        autopost.start(targets, info, a.url, a.post_privacy, a.post_max, profile.load(a.post_profile))
+        autopost.start(targets, info, a.url, a.post_privacy, a.post_max, profile.load(a.post_profile),
+                       a.post_gap, a.post_hours)
     try:
         if is_live:
             import live
@@ -651,6 +764,10 @@ def run_vod(a, info: dict, out_dir: Path) -> int:
                 progress.emit("clip", **r)
                 print(f"    ✓ {path}")
             except Exception as e:   # one failed clip (download error, render timeout) shouldn't stop the rest
+                if type(e).__name__ == "Junk":
+                    print(f"    · clip {i} skipped: {e}")
+                    progress.emit("clip_failed", n=i, message=f"skipped: {e}")
+                    continue
                 msg = getattr(e, "stderr", None) or str(e)
                 print(f"    ✗ clip {i} failed: {type(e).__name__}: {str(msg)[-300:]}")
                 progress.emit("clip_failed", n=i, message=f"{type(e).__name__}: {str(msg)[-200:]}")

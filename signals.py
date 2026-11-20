@@ -80,12 +80,13 @@ def hype_curve(duration: float, chat: list[ChatMsg], loud: list[tuple[float, flo
 
 
 def pick_candidates(score: list[float], norm: dict[str, list[float]], k: int,
-                    min_gap: float = 120.0, skip_intro: float = 60.0) -> list[Candidate]:
+                    min_gap: float = 120.0, skip_intro: float = 60.0, skip_outro: float = 25.0) -> list[Candidate]:
     order = sorted(range(len(score)), key=lambda i: score[i], reverse=True)
     picked: list[Candidate] = []
+    end = len(score) * BUCKET
     for i in order:
         t = i * BUCKET + BUCKET / 2
-        if t < skip_intro:
+        if t < skip_intro or t > end - skip_outro:    # intros and end screens ("subscribe!") aren't moments
             continue
         if any(abs(t - c.peak) < min_gap for c in picked):
             continue

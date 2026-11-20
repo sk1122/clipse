@@ -21,6 +21,11 @@ MUSIC = "none"             # set by the CLI (--music): none | auto (generated) |
 MUSIC_VOLUME = 0.4         # background music level under the voice (the music also dips while people talk)
 SPEED = 1.0                # set by the CLI (--speed): play every clip faster, voice pitch kept
 HOOK_INTRO = False          # set by the CLI (--hook-intro): open with a teaser + hook line
+JUMP_CUTS = False          # set by the CLI (--jump-cuts): trim dead air
+SFX = False                # set by the CLI (--sfx): whoosh at the start, boom on the punchline
+LOOP = False               # set by the CLI (--loop): end fades into the first frame for seamless replays
+FOLLOW_FACE = False        # set by the CLI (--follow-face): full-frame cameras: the crop follows the face
+JUNK_FILTER = False        # set by the CLI (--junk-filter): skip clips that are mostly black/frozen footage
 CAPTION_LANG = "hinglish"   # original | hinglish | english — set by the CLI (--captions)
 DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 
@@ -318,6 +323,9 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
     src_len = _duration(src)
     if src_len and seek > src_len - 1:
         raise ValueError(f"clip starts at {seek:.1f}s but the source is only {src_len:.1f}s long")
+    if JUNK_FILTER:
+        import quality
+        quality.check(src, seek, length)      # raises quality.Junk: the clip is skipped
     inputs = ["-ss", f"{seek:.3f}", "-i", str(src)]
     chosen = "classic"
     if vertical and STYLE != "classic":
@@ -335,7 +343,10 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
         tpng = cw / "title.png"
         th = styles.title_png(clip.hook or clip.title, tpng, lambda size, t: _font(FONT_CAPTION, size, t),
                               highlight=getattr(clip, "highlight", ""))
-        lay = styles.build(chosen, cam, sw, sh, th)
+        follow = None
+        if FOLLOW_FACE and chosen == "fullscreen" and cam is not None and cam.full_frame:
+            follow = facecam.track(src, seek, length)
+        lay = styles.build(chosen, cam, sw, sh, th, follow)
         inputs += ["-loop", "1", "-i", str(tpng)]
         f = lay.filter + ";"
         cap_y, cap_in = lay.caption_y, 2
@@ -362,16 +373,26 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
     if look:
         f = f.replace("[0:v]", f"[0:v]{look},", 1)
     fade = 0.4
-    f += f"[v2]fade=t=out:st={max(0.0, length - fade):.2f}:d={fade}[v]"
+    if LOOP:            # no fade to black: the loop ending blends into the first frame instead
+        f += "[v2]null[v]"
+        afade = "anull"
+    else:
+        f += f"[v2]fade=t=out:st={max(0.0, length - fade):.2f}:d={fade}[v]"
+        afade = f"afade=t=out:st={max(0.0, length - fade):.2f}:d={fade}"
 
     cmd =["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs,
            "-filter_complex", f, "-map", "[v]", "-map", "0:a?",
-           "-af", f"afade=t=out:st={max(0.0, length - fade):.2f}:d={fade}",
+           "-af", afade,
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
            "-r", "30", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
            "-t", f"{length:.2f}", str(out)]
     # a render never takes anywhere near this long; the timeout stops a bad input hanging a job forever
     subprocess.run(cmd, check=True, timeout=max(180, length * 6))
+    import retention
+    if JUMP_CUTS:
+        cut = retention.jump_cuts(out)
+        if cut:
+            print(f"    jump cuts: {cut:.1f}s of dead air removed")
     if ZOOM_PUNCH and vertical:
         zoom_punch(out)
     if HOOK_INTRO:
@@ -383,8 +404,13 @@ def render_file(src: Path, src_offset: float, clip: Clip, words: list[Word], out
         import speed
         fast = speed.speedup(out, SPEED)
         fast.replace(out)            # the sped-up version becomes the clip
+    if SFX:
+        import hook
+        retention.add_sfx(out, skip=(hook.TEASER + hook.FLASH) / SPEED if HOOK_INTRO else 0.0)
     if MUSIC and MUSIC != "none":
         add_music(out, MUSIC, MUSIC_VOLUME)
+    if LOOP:
+        retention.loop_end(out)
     return out
 
 

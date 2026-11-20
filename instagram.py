@@ -123,8 +123,14 @@ def caption(meta: dict, source_url: str | None, prof: dict | None = None) -> str
 
 def _upload_once(uid: str, f: Path, text: str, share_to_feed: bool, log) -> str:
     """Create a Reel container, send the file, wait until Instagram has processed it. Returns the container id."""
+    extra = {}
+    try:                                     # cover: the biggest reaction, not whatever the first frame is
+        import retention
+        extra["thumb_offset"] = str(int(retention.cover_time(f) * 1000))
+    except Exception:
+        pass
     container = _post(f"{API_VERSION}/{uid}/media", media_type="REELS", upload_type="resumable",
-                      caption=text, share_to_feed=str(share_to_feed).lower())
+                      caption=text, share_to_feed=str(share_to_feed).lower(), **extra)
     cid = container["id"]
     size = f.stat().st_size
     with open(f, "rb") as fh:

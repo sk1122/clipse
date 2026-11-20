@@ -45,6 +45,8 @@ Fonts are picked per system: Arial on macOS, and Noto or DejaVu on Linux (any in
 ./clipse restart <link> --clips 25 --style split   # …or with some settings changed
 ./clipse restart <link> --redo-catchup             # …and clip the already-aired part again
 ./clipse discover "<query>" … # find videos to clip (see below)
+./clipse autopilot --queries-file q.txt --with --post-to instagram   # keep finding and clipping on its own
+./clipse poster --status      # what's queued to post, and when the next post goes out
 ./clipse connect youtube|instagram   # sign in once for posting
 ./clipse post …               # post clips you already have (see Posting)
 ```
@@ -65,10 +67,12 @@ Run the TUI in a normal terminal (Terminal, iTerm, …). Some embedded terminal 
 | `y` / `f` | open that moment on YouTube / show the file in its folder |
 | `s` | stop the selected job |
 | `r` | restart the selected live job with the same settings (it stops cleanly first; the already-aired part isn't clipped twice) |
-| `D` (shift-d) | **Discover**: search YouTube with your queries, tick results with space, and **Clip ticked** starts jobs on them with the New job settings |
+| `D` (shift-d) | **Discover**: search YouTube with your queries, tick results with space, and **Clip ticked** starts jobs on them with the New job settings. **Autopilot** keeps searching those queries every 30 minutes and starts jobs on its own; press it again to stop |
 | `q` | quit (jobs keep running in the background) |
 
 For a live stream, the progress panel shows chat rate, chat and voice spike scores and clips made. For a finished stream it shows which processing step it's on.
+
+In the clip list, `▶ig` / `▶yt` mean posted, and `⏳ig` / `⏳yt` mean queued to post. The title bar shows the posting queue (how many are waiting, and when the next one goes out) and whether autopilot is on.
 
 ### Options
 
@@ -79,8 +83,10 @@ The TUI offers the same choices next to the link box.
 | `--speech-model` | tiny, base, small, medium, large-v3-turbo, large-v3 | large-v3-turbo |
 | `--judge` | claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-fable-5-2, none | claude-opus-5-5 |
 | `--captions` | hinglish (Hindi in Roman script), english (translated if needed), original (as spoken; `hindi` = Devanagari) | hinglish |
-| `--post-to` | `youtube`, `instagram` or `both`: upload every clip the moment it's made. YouTube uploads are private; Instagram Reels are public. Clips the judge skips are never posted | none |
-| `--post-max` | max auto-posts per platform per day, shared by all jobs (see [Daily limits](#daily-limits)) | 40 |
+| `--post-to` | `youtube`, `instagram` or `both`: queue every clip for posting as it's made; posts are spread across the day. YouTube uploads are private; Instagram Reels are public. Clips the judge skips are never posted | none |
+| `--post-max` | max auto-posts per platform per day, shared by all jobs (see [Posting schedule](#posting-schedule-and-daily-limits)) | 40 |
+| `--post-gap` | minutes between auto-posts; 0 spreads the posting hours evenly over `--post-max` | 0 (auto) |
+| `--post-hours` | local hours to post in, e.g. `9-1` = 09:00 to 01:00 | 9-1 |
 | `--post-privacy` | YouTube visibility for auto-posts: private, unlisted, public | private |
 | `--post-profile` | hashtags and keywords file (see [Posting](#posting-to-youtube)) | none |
 | `--speed` | play every clip faster, e.g. `1.5` or `2`; the voice keeps its normal pitch | 1 |
@@ -115,6 +121,19 @@ The TUI offers the same choices next to the link box.
 
 Every search is saved to `out/_discover/`.
 
+**Autopilot** finds streams and starts clipping them on its own:
+
+```bash
+./clipse autopilot --queries-file queries.txt --min-viewers 2000 --max-jobs 6 \
+    --with --clips 25 --style split --speed 1.5 --post-to instagram --post-profile profiles/gta6.json
+./clipse autopilot --status        # what it started, and when it searches next
+./clipse autopilot --stop          # stop it (the jobs it started keep running)
+```
+
+- **Searching:** every 30 minutes (`--every`) it searches your queries and starts jobs on the best new results, live streams with at least `--min-viewers` watching, until `--max-jobs` are running. That count includes jobs you started yourself.
+- **Freeing slots:** a live job it started that makes no clip for 90 minutes (`--quiet`) is stopped, so a better stream can take its place.
+- **Jobs:** each job gets the flags after `--with`. In the TUI, the **Autopilot** button in Discover uses your New job settings.
+
 ## Edit styles
 
 Pick a style in the TUI (**style**) or with `--style`:
@@ -141,6 +160,15 @@ Pick a style in the TUI (**style**) or with `--style`:
 | `--filter` | colour look for the footage: `vivid`, `cinematic`, `warm`, `cool`, `bw`, `vintage`, `dramatic` | none |
 | `--music` | low-volume background music that dips whenever someone talks. `auto` generates an original high-energy track per clip (no copyright issues); or give a music file or folder. The TUI's "my music folder" uses `clipper/music/` | none |
 | `--music-volume` | music level, 0–1 | 0.4 |
+| `--jump-cuts` | trims dead air: stretches where nobody talks and nothing happens shrink to a short beat | on |
+| `--sfx` | a whoosh as the clip starts and a deep boom on the punchline (the loudest moment). Both are generated, so there's nothing to license | on |
+| `--loop` | no fade to black: the last 0.3 s fades into the first frame, so a replay looks seamless | on |
+| `--follow-face` | when the camera is the whole picture (IRL, vlogs), the vertical crop glides to follow the main face instead of staying fixed | on |
+| `--junk-filter` | skips clips that are mostly black or frozen footage (loading screens, pause menus, a stuck feed) | on |
+
+Turn any of them off with `--no-…`, e.g. `--no-sfx`. In the TUI, **edits** picks jump cuts, sound effects and the loop ending.
+
+**Reel covers:** each Instagram Reel's cover is set to the biggest reaction in the clip, not its first frame.
 
 The judge also picks which word of the hook to highlight.
 
@@ -159,7 +187,7 @@ The judge also picks which word of the hook to highlight.
 - **Keywords:** they become YouTube tags, and go at the end of the description or caption on both platforms.
 - **Example:** see `profiles/gta6.json`.
 
-**Auto-post while clipping:** in the TUI, pick **post to** next to the link (or pass `--post-to youtube|instagram|both`), and every clip is uploaded as soon as it's made. Uploads run in the background, so they never slow down live clipping. The clip list marks posted clips with `▶yt` and `▶ig`, and the progress panel shows what's been posted. Connect each platform first (below).
+**Auto-post while clipping:** in the TUI, pick **post to** next to the link (or pass `--post-to youtube|instagram|both`), and every clip joins the posting queue as soon as it's made. The background poster spreads posts out (see [Posting schedule](#posting-schedule-and-daily-limits)), so posting never slows down clipping. The clip list marks queued clips `⏳yt` / `⏳ig` and posted ones `▶yt` / `▶ig`. Connect each platform first (below).
 
 clipse can upload clips to your channel as Shorts through the official YouTube Data API. It's free, and you set it up once:
 
@@ -217,16 +245,22 @@ clipse can publish clips as Reels through the official Instagram API. It's free,
 
 If Meta's upload server fails or the connection drops, the upload is retried up to 3 times. A clip that still fails is skipped, and the rest of the batch carries on.
 
-## Daily limits
+## Posting schedule and daily limits
 
-- **One count for all jobs:** every job and `clipse post` share each platform's daily count (default 40, set with `--post-max` / `--max`). Several jobs uploading at once can overshoot it by a few posts.
-- **When it resets:** the count goes by UTC day, so it resets at midnight UTC (05:30 IST).
-- **YouTube's own limit:** when the channel hits it, YouTube auto-posts stop for that run. Clipping carries on.
-- **Held clips:** once a limit is reached, new clips are still made and saved, marked "left for `clipse post --auto`". After the reset, post the backlog, best clips first:
+Clips aren't posted the moment they're made. Twenty Reels in 40 minutes compete with each other and look spammy, so every clip goes into one shared **posting queue** (`out/_post/queue.json`). A single background **poster** posts from it:
+
+- **Spread out:** posts go out evenly through the posting hours. For example, a cap of 40 over 09:00–01:00 is one post about every 24 minutes. Set the gap yourself with `--post-gap`, and the hours with `--post-hours`.
+- **Best first:** at each slot, the best clip waiting goes out (judge's score, then the spike score), with fresh clips nudged ahead of old ones.
+- **One count for all jobs:** the cap (default 40 per platform per day, `--post-max` / `--max`) is checked by the poster, the only process that posts, so jobs can't overshoot it together.
+- **When the count resets:** it goes by UTC day, so midnight UTC (05:30 IST).
+- **YouTube's own limit:** when the channel hits it, YouTube posting pauses until the next day. Clipping carries on.
+- **Starting and stopping:** the poster starts by itself when something is queued, and stops after an hour with nothing to post.
 
 ```bash
-./clipse post --auto --to instagram --dry-run   # see what would go out
-./clipse post --auto --to instagram             # post up to today's limit
+./clipse poster --status                 # what's queued, best first, and when the next post goes out
+./clipse post --auto --to instagram      # queue keep-marked clips + ones auto-post couldn't fit in yesterday's limit
+./clipse post --auto --to instagram --now   # post them right away instead, one after another
+./clipse poster --clear                  # empty the queue (no clips are deleted)
 ```
 
 ## How it works
@@ -257,14 +291,17 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `hinglish.py` | Hinglish transliteration and English translation of captions |
 | `render.py` | vertical render: blurred background, hook banner, captions, fade |
 | `hook.py` | hook intros (teaser cold-open + hook line) |
-| `facecam.py` | finding the streamer's webcam in any layout |
+| `facecam.py` | finding the streamer's webcam in any layout, and following a face for full-frame cameras |
 | `styles.py` | split / fullscreen / reaction layouts and the big title |
 | `music.py` | generated background music |
 | `speed.py` | speeding clips up with the voice pitch kept |
+| `retention.py` | jump cuts, sound effects, the loop ending and the Reel cover frame |
+| `quality.py` | skipping black or frozen footage |
 | `youtube.py` | YouTube sign-in and Shorts uploads |
 | `instagram.py` | Instagram Reels publishing |
-| `autopost.py` | uploading clips in the background as a job makes them |
-| `discover.py` | searching YouTube for videos to clip |
+| `autopost.py` | queueing each clip for posting as a job makes it |
+| `postqueue.py` | the shared posting queue and the background poster that spreads posts out |
+| `discover.py` | searching YouTube for videos to clip, and autopilot |
 | `postprofile.py` | hashtags and keywords per stream, picked by clip type |
 | `progress.py` | `job.json` / `events.jsonl` progress events that the TUI follows |
 | `tui.py` | the terminal UI |

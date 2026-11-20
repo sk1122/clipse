@@ -390,7 +390,10 @@ class Live:
                         try:
                             done = self.make_clip(p, pz)
                         except Exception as e:   # one bad clip must never kill the live session
-                            print(f"    ✗ clip failed: {type(e).__name__}: {str(e)[:200]}")
+                            if type(e).__name__ == "Junk":
+                                print(f"    · skipped: {e}")
+                            else:
+                                print(f"    ✗ clip failed: {type(e).__name__}: {str(e)[:200]}")
                             done = True
                         if done or now > p + 180:
                             self.pending.remove((p, pz))
