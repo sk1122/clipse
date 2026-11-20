@@ -58,6 +58,22 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("tui", help="open the terminal UI")
     sub.add_parser("models", help="list speech and judge models")
+    dv = sub.add_parser("discover", help="search YouTube for videos worth clipping (and optionally clip them)")
+    dv.add_argument("queries", nargs="*", help="search queries (or use --queries-file)")
+    dv.add_argument("--queries-file", help="a text file with one query per line")
+    dv.add_argument("--mode", default="live", choices=["live", "week", "popular"],
+                    help="live: on air now, ranked by live viewers (default); week: uploaded this week, ranked by "
+                         "views per day; popular: ranked by total views")
+    dv.add_argument("--expand", type=int, default=0, help="have the judge model write this many extra queries")
+    dv.add_argument("--judge", default="claude-haiku-5-5", choices=[m for m in JUDGE_MODELS if m != "none"],
+                    help="model used for --expand (default claude-haiku-5-5)")
+    dv.add_argument("--per-query", type=int, default=40, help="results to read per query (default 40)")
+    dv.add_argument("--min-minutes", type=float, default=2, help="skip finished videos shorter than this (default 2)")
+    dv.add_argument("--top", type=int, default=20, help="how many to list (default 20)")
+    dv.add_argument("--run", type=int, default=0, metavar="N",
+                    help="start clipping jobs on the top N; any flags after --with are passed to each job")
+    dv.add_argument("--with", dest="run_flags", nargs=argparse.REMAINDER, default=[],
+                    help="run flags for the jobs started by --run, e.g. --with --clips 25 --style split")
     rs = sub.add_parser("restart", help="stop a live job and start it again with the same settings")
     rs.add_argument("job", help="the stream's link or video id")
     rs.add_argument("--redo-catchup", action="store_true",
@@ -216,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if a.cmd == "post":
         return run_post(a)
+    if a.cmd == "discover":
+        return run_discover(a)
     if a.cmd == "restart":
         return run_restart(a)
     if a.cmd == "hook":
@@ -367,6 +385,42 @@ def find_job(ref: str) -> Path | None:
     vid = m.group(1) if m else ref.strip()
     d = HERE / "out" / vid
     return d if (d / "job.json").exists() else None
+
+
+def run_discover(a) -> int:
+    import time
+    import discover
+    queries = list(a.queries)
+    if a.queries_file:
+        queries += [l.strip() for l in Path(a.queries_file).read_text().splitlines()
+                    if l.strip() and not l.strip().startswith("#")]
+    if not queries:
+        print("Give some search queries, or --queries-file.")
+        return 1
+    found = discover.discover(queries, a.mode, a.per_query, a.expand, a.judge, a.min_minutes)
+    if not found:
+        print("Nothing new found.")
+        return 0
+    metric = "live viewers" if a.mode == "live" else "views/day" if a.mode == "week" else "views"
+    print(f"\nTop {min(a.top, len(found))} of {len(found)} new videos (by {metric}; already-clipped ones skipped):")
+    for i, v in enumerate(found[:a.top], 1):
+        n = v["viewers"] if a.mode == "live" else v["score"] if a.mode == "week" else v["views"]
+        length = "LIVE" if v["live"] else time.strftime("%H:%M:%S", time.gmtime(v["duration"] or 0))
+        print(f"{i:3d}. {discover.fmt_count(n):>6} {length:>8}  {v['channel'][:18]:18s} {v['title'][:60]}")
+        print(f"       {v['url']}   ({len(v['queries'])} queries: {', '.join(v['queries'][:2])}{'…' if len(v['queries']) > 2 else ''})")
+    if a.run:
+        flags = [x for x in a.run_flags if x != "--"]
+        logs = HERE / "out" / "_logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        print()
+        for v in found[:a.run]:
+            log = logs / f"{time.strftime('%Y%m%d-%H%M%S')}-{v['id']}.log"
+            p = subprocess.Popen([sys.executable, "-u", str(HERE / "clip.py"), "run", v["url"], *flags],
+                                 stdout=open(log, "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                 start_new_session=True, cwd=str(HERE))
+            print(f"▶ started clipping {v['channel']}: {v['title'][:50]}  (pid {p.pid})")
+            time.sleep(1)
+    return 0
 
 
 def run_restart(a) -> int:

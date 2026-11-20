@@ -85,6 +85,29 @@ The TUI offers the same choices next to the link box.
 | `--duration`, `--max-clips` | live: stop after N minutes / N clips | until the stream ends |
 | `--live-quality` | live recording height | 720 |
 
+## Finding videos to clip
+
+`clipse discover` searches YouTube for your queries and lists the best new videos. Videos clipse has already clipped are skipped.
+
+```bash
+./clipse discover "gta 6 funny moments" "gta 6 rage" --mode live --expand 10
+./clipse discover --queries-file queries.txt --mode popular --top 30
+./clipse discover --queries-file queries.txt --mode live --run 3 --with --clips 25 --style split --speed 1.5
+```
+
+| Option | Does | Default |
+|---|---|---|
+| `--mode` | `live`: streams on air now, ranked by live viewers · `week`: uploaded this week, ranked by views per day · `popular`: ranked by total views | live |
+| `--expand N` | the judge model writes N more queries in the same spirit, on the same topic | 0 |
+| `--run N` | start clipping jobs on the top N; flags after `--with` go to each job | off |
+| `--min-minutes` | skip finished videos shorter than this | 2 |
+
+**Filters:**
+- **Relevance:** results must match the query's distinctive words; numbers must match exactly, so "GTA 6" won't return GTA 5.
+- **Not real moments:** 24/7 reruns, "best of" loops, news and music streams are dropped, as are Shorts and finished videos with very few views.
+
+Every search is saved to `out/_discover/`.
+
 ## Edit styles
 
 Pick a style in the TUI (**style**) or with `--style`:
@@ -218,6 +241,7 @@ The judge reads the transcript and chat, decides whether a moment is worth posti
 | `youtube.py` | YouTube sign-in and Shorts uploads |
 | `instagram.py` | Instagram Reels publishing |
 | `autopost.py` | uploading clips in the background as a job makes them |
+| `discover.py` | searching YouTube for videos to clip |
 | `postprofile.py` | hashtags and keywords per stream, picked by clip type |
 | `progress.py` | `job.json` / `events.jsonl` progress events that the TUI follows |
 | `tui.py` | the terminal UI |
