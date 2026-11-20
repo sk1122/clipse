@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="with --auto: also upload clips the judge rated at least this (1-10); 0 = keep-marked only")
     po.add_argument("--privacy", default="private", choices=["private", "unlisted", "public"],
                     help="visibility on YouTube (default private: you publish in YouTube Studio)")
-    po.add_argument("--max", type=int, default=5, help="max uploads per day (default 5)")
+    po.add_argument("--max", type=int, default=40, help="max uploads per day (default 40)")
     po.add_argument("--speed", type=float, default=1.0,
                     help="upload a sped-up copy, e.g. 1.5 or 2 (voice pitch kept; your original clip is untouched)")
     po.add_argument("--profile", help="JSON file with hashtags and keywords for captions (see profiles/)")
@@ -147,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="YouTube visibility for auto-posted clips (default private)")
     c.add_argument("--post-profile", help="JSON file with hashtags (funny / highlight) and keywords to add to "
                    "captions, e.g. profiles/gta6.json")
-    c.add_argument("--post-max", type=int, default=5, help="max auto-posts per platform per day (default 5)")
+    c.add_argument("--post-max", type=int, default=40, help="max auto-posts per platform per day, shared by all jobs (default 40)")
     c.add_argument("--speed", type=float, default=1.0,
                    help="play every clip faster, e.g. 1.5 or 2 (voice pitch is kept). Default 1")
     c.add_argument("--hook-intro", action="store_true",
@@ -268,6 +268,11 @@ def clip_index() -> list[tuple[Path, dict, dict]]:
     return out
 
 
+def _auto_posts_to(job: dict, plat: str) -> bool:
+    """The job was started with --post-to covering this platform, so its clips were approved for posting."""
+    return (job.get("settings") or {}).get("post_to") in (plat, "both")
+
+
 def run_post(a) -> int:
     import instagram
     import postprofile as profile
@@ -289,11 +294,14 @@ def run_post(a) -> int:
     for plat in platforms:
         mod = mods[plat]
         if a.auto:
-            # Instagram posts are public at once, so it only takes clips you marked keep, never by score alone
+            # Instagram posts are public at once, so it only takes clips you marked keep, or clips from a job you
+            # set to auto-post there (held back by the daily limit) — never by score alone
             by_score = a.min_score if plat == "youtube" else 0
             todo = [(f, e, j) for f, (e, j) in index.items()
                     if not e.get("skipped") and j["review"] != "reject" and not mod.posted(f)
-                    and (j["review"] == "keep" or (by_score and (e.get("virality") or 0) >= by_score))]
+                    and (j["review"] == "keep" or _auto_posts_to(j, plat)
+                         or (by_score and (e.get("virality") or 0) >= by_score))]
+            todo.sort(key=lambda t: (t[1].get("virality") or 0, t[1].get("score") or 0), reverse=True)
         print(f"── {plat} ──")
         if not todo:
             print("Nothing to upload (mark clips with k in the TUI" + (", or use --min-score)." if plat == "youtube" else ")."))
@@ -303,18 +311,19 @@ def run_post(a) -> int:
             done_today = youtube.uploads_today() if plat == "youtube" else instagram.posts_today()
         left = max(0, a.max - done_today)
         for f, e, j in (todo if a.force else todo[:left]):
+            jp = prof or profile.load((j.get("settings") or {}).get("post_profile"))   # else the job's own hashtags
             src = j.get("url")
             if src and e.get("start") is not None and e.get("part") != "live":
                 src = f"https://youtu.be/{j.get('id')}?t={int(e['start'])}"
             sp = f"  ·  speed {a.speed:g}x" if a.speed != 1 else ""
             if plat == "youtube":
-                md = youtube.metadata(e, src, prof=prof)
+                md = youtube.metadata(e, src, prof=jp)
                 print(f"• {f.name}  [{profile.kind(e)}]\n    title: {md['title']}\n    visibility: {a.privacy}{sp}")
                 if a.dry_run and prof:
                     print("    description:\n      " + md["description"].replace("\n", "\n      "))
                     print(f"    tags: {', '.join(md['tags'])}")
             else:
-                cap = instagram.caption(e, src, prof)
+                cap = instagram.caption(e, src, jp)
                 print(f"• {f.name}  [{profile.kind(e)}]\n    visibility: PUBLIC (Reel){sp}")
                 print("    caption:\n      " + cap.replace("\n", "\n      "))
             if a.dry_run:
@@ -326,15 +335,15 @@ def run_post(a) -> int:
                     print(f"    speeding up to {a.speed:g}x…")
                     video = speed.speedup(f, a.speed)
                 if plat == "youtube":
-                    youtube.upload(f, e, src, a.privacy, force=a.force, video=video, speed=a.speed, prof=prof)
+                    youtube.upload(f, e, src, a.privacy, force=a.force, video=video, speed=a.speed, prof=jp)
                 else:
-                    instagram.upload(f, e, src, force=a.force, video=video, speed=a.speed, prof=prof)
+                    instagram.upload(f, e, src, force=a.force, video=video, speed=a.speed, prof=jp)
             except (youtube.NotConnected, instagram.NotConnected, youtube.LimitReached) as err:
                 print(f"    ✗ {err}")
                 rc = 1
                 break
-            except RuntimeError as err:
-                print(f"    ✗ {err}")
+            except Exception as err:                     # one bad clip or network drop doesn't stop the rest
+                print(f"    ✗ {f.name}: {str(err)[:200]}")
                 rc = 1
         if len(todo) > left and not a.force:
             print(f"Daily limit reached ({a.max}); {len(todo) - left} clip(s) left for tomorrow.")

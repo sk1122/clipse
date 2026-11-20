@@ -159,7 +159,7 @@ def upload(clip: Path, meta: dict, source_url: str | None = None, force: bool = 
         try:
             cid = _upload_once(uid, f, caption(meta, source_url, prof), share_to_feed, log)
             break
-        except RuntimeError as e:
+        except (RuntimeError, requests.exceptions.RequestException) as e:   # incl. dropped connections
             last = e
             if attempt < 3:
                 log(f"    Instagram upload failed ({str(e)[:120]}) — retrying in {15 * attempt}s ({attempt}/3)…")

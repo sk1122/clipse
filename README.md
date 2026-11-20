@@ -76,7 +76,7 @@ The TUI offers the same choices next to the link box.
 | `--judge` | claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-fable-5-2, none | claude-opus-5-5 |
 | `--captions` | hinglish (Hindi in Roman script), english (translated if needed), original (as spoken; `hindi` = Devanagari) | hinglish |
 | `--post-to` | `youtube`, `instagram` or `both`: upload every clip the moment it's made. YouTube uploads are private; Instagram Reels are public. Clips the judge skips are never posted | none |
-| `--post-max` | max auto-posts per platform per day | 5 |
+| `--post-max` | max auto-posts per platform per day, shared by all jobs | 40 |
 | `--speed` | play every clip faster, e.g. `1.5` or `2`; the voice keeps its normal pitch | 1 |
 | `--hook-intro` | open each clip with its best 2.5 s and a hook line, then the full clip | off |
 | `--clips` | clips from a finished stream, or from the already-aired part of a live one | 5 |
@@ -166,7 +166,7 @@ The sign-in token is saved in `~/.config/clipse/` and stays on your machine.
 
 ```bash
 ./clipse post <clip.mp4>               # upload one clip
-./clipse post --auto                   # upload every clip you marked keep (k) that isn't uploaded yet
+./clipse post --auto                   # upload every clip you marked keep (k), plus clips an auto-post job held back at the daily limit, best first
 ./clipse post --auto --min-score 8     # …plus clips the judge rated 8/10 or higher
 ./clipse post --auto --dry-run         # preview without uploading
 ./clipse post --auto --speed 2         # upload 2x-speed copies (your original clips are untouched)
@@ -203,7 +203,7 @@ clipse can publish clips as Reels through the official Instagram API. It's free,
 
 ```bash
 ./clipse post <clip.mp4> --to instagram             # one clip
-./clipse post --auto --to instagram                 # every clip you marked keep (k) not posted yet
+./clipse post --auto --to instagram                 # keep-marked clips + ones auto-post held back at the daily limit
 ./clipse post --auto --to both --speed 1.5          # YouTube and Instagram, at 1.5x
 ```
 
