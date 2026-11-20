@@ -61,6 +61,7 @@ Run the TUI in a normal terminal (Terminal, iTerm, …). Some embedded terminal 
 | `y` / `f` | open that moment on YouTube / show the file in its folder |
 | `s` | stop the selected job |
 | `r` | restart the selected live job with the same settings (it stops cleanly first; the already-aired part isn't clipped twice) |
+| `D` (shift-d) | **Discover**: search YouTube with your queries, tick results with space, and **Clip ticked** starts jobs on them with the New job settings |
 | `q` | quit (jobs keep running in the background) |
 
 For a live stream, the progress panel shows chat rate, chat and voice spike scores and clips made. For a finished stream it shows which processing step it's on.
@@ -87,7 +88,7 @@ The TUI offers the same choices next to the link box.
 
 ## Finding videos to clip
 
-`clipse discover` searches YouTube for your queries and lists the best new videos. Videos clipse has already clipped are skipped.
+`clipse discover` (or **D** in the TUI) searches YouTube for your queries and lists the best new videos. Videos clipse has already clipped are skipped. The TUI remembers your queries between sessions.
 
 ```bash
 ./clipse discover "gta 6 funny moments" "gta 6 rage" --mode live --expand 10

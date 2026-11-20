@@ -163,6 +163,128 @@ def fmt_secs(s: float | None) -> str:
 
 # ---------------------------------------------------------------- dialogs
 
+class DiscoverScreen(ModalScreen[list]):
+    """Search YouTube for videos to clip; tick results and start jobs on them."""
+    DEFAULT_CSS = """
+    DiscoverScreen { align: center middle; }
+    #dbox { width: 96%; height: 94%; border: thick $primary; background: $surface; padding: 0 1; }
+    #dq { height: 7; }
+    #dopts { height: auto; }
+    #dopts Select { width: 34; }
+    #dopts Input { width: 10; }
+    #dopts .lbl { padding: 1 0 0 1; color: $text-muted; }
+    #dopts Button { margin-left: 1; }
+    #dstatus { height: auto; color: $text-muted; }
+    #dres { height: 1fr; }
+    #dbtns { height: auto; align: right middle; }
+    #dbtns Button { margin-left: 2; }
+    """
+    BINDINGS = [Binding("escape", "close", "Close"), Binding("space", "tick", "Tick"),
+                Binding("enter", "tick", "Tick", show=False)]
+    SAVED = OUT / "_discover" / "queries.txt"
+
+    def __init__(self, judge: str):
+        super().__init__()
+        self.judge = judge if judge != "none" else "claude-haiku-5-5"
+        self.results: list[dict] = []
+        self.ticked: set[str] = set()
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import TextArea
+        saved = self.SAVED.read_text() if self.SAVED.exists() else ""
+        with Vertical(id="dbox"):
+            yield Label("Search queries, one per line:")
+            yield TextArea(saved, id="dq")
+            with Horizontal(id="dopts"):
+                yield Label("find", classes="lbl")
+                yield Select([("live now (by viewers)", "live"), ("this week (by views/day)", "week"),
+                              ("most viewed (all time)", "popular")], value="live", allow_blank=False, id="dmode")
+                yield Label("extra queries", classes="lbl")
+                yield Input("5", id="dexpand", tooltip="the judge model writes this many more, same topic")
+                yield Button("Search", id="dsearch", variant="primary")
+            yield Static("", id="dstatus")
+            yield DataTable(id="dres", cursor_type="row", zebra_stripes=True)
+            with Horizontal(id="dbtns"):
+                yield Button("Close", id="dclose")
+                yield Button("Clip ticked", id="dgo", variant="success")
+
+    def on_mount(self) -> None:
+        t = self.query_one("#dres", DataTable)
+        t.add_columns("✓", "Score", "Length", "Channel", "Title", "Found by")
+        self.query_one("#dbox").border_title = "Discover videos  (space tick · Clip ticked uses the New job settings)"
+
+    @on(Button.Pressed, "#dsearch")
+    def search(self) -> None:
+        from textual.widgets import TextArea
+        queries = [q.strip() for q in self.query_one("#dq", TextArea).text.splitlines()
+                   if q.strip() and not q.strip().startswith("#")]
+        if not queries:
+            self.notify("Type at least one query.", severity="warning")
+            return
+        self.SAVED.parent.mkdir(parents=True, exist_ok=True)
+        self.SAVED.write_text("\n".join(queries) + "\n")
+        mode = str(self.query_one("#dmode", Select).value)
+        try:
+            n = max(0, int(self.query_one("#dexpand", Input).value or 0))
+        except ValueError:
+            n = 0
+        self.query_one("#dstatus", Static).update(f"Searching {len(queries)} queries"
+                                                  + (f" + {n} generated" if n else "") + "…")
+        self.query_one("#dsearch", Button).disabled = True
+        self.run_worker(lambda: self._search(queries, mode, n), thread=True, exclusive=True)
+
+    def _search(self, queries, mode, n) -> None:
+        import discover
+        try:
+            found = discover.discover(queries, mode, 40, n, self.judge, log=lambda m: None)
+            err = None
+        except Exception as e:
+            found, err = [], f"{type(e).__name__}: {str(e)[:120]}"
+        self.app.call_from_thread(self._show, found, mode, err)
+
+    def _show(self, found, mode, err) -> None:
+        import discover
+        self.query_one("#dsearch", Button).disabled = False
+        self.results, self.ticked = found, set()
+        t = self.query_one("#dres", DataTable)
+        t.clear()
+        for v in found:
+            n = v["viewers"] if mode == "live" else v["score"] if mode == "week" else v["views"]
+            length = "LIVE" if v["live"] else time.strftime("%H:%M:%S", time.gmtime(v["duration"] or 0))
+            t.add_row("", discover.fmt_count(n), length, v["channel"][:18], v["title"][:70],
+                      f"{len(v['queries'])} quer{'y' if len(v['queries']) == 1 else 'ies'}", key=v["id"])
+        metric = {"live": "live viewers", "week": "views per day", "popular": "views"}[mode]
+        self.query_one("#dstatus", Static).update(
+            Text(f"Error: {err}", style="bold red") if err else
+            f"{len(found)} new videos, best first (by {metric}). Already-clipped videos are left out.")
+        t.focus()
+
+    def action_tick(self) -> None:
+        t = self.query_one("#dres", DataTable)
+        if not t.row_count:
+            return
+        key = t.coordinate_to_cell_key(t.cursor_coordinate).row_key.value
+        if key in self.ticked:
+            self.ticked.discard(key)
+        else:
+            self.ticked.add(key)
+        t.update_cell(key, t.ordered_columns[0].key, "✓" if key in self.ticked else "")
+        if t.cursor_row < t.row_count - 1:
+            t.move_cursor(row=t.cursor_row + 1)
+
+    @on(Button.Pressed, "#dgo")
+    def go(self) -> None:
+        urls = [v["url"] for v in self.results if v["id"] in self.ticked]
+        if not urls:
+            self.notify("Tick some videos first (space).", severity="warning")
+            return
+        self.dismiss(urls)
+
+    @on(Button.Pressed, "#dclose")
+    def action_close(self) -> None:
+        self.dismiss([])
+
+
 class Confirm(ModalScreen[bool]):
     DEFAULT_CSS = """
     Confirm { align: center middle; }
@@ -223,6 +345,7 @@ class ClipperApp(App):
         Binding("y", "open_moment", "On YouTube"),
         Binding("s", "stop_job", "Stop job"),
         Binding("r", "restart_job", "Restart job"),
+        Binding("D", "discover", "Discover"),
         Binding("tab", "focus_next", "Next pane", show=False),
         Binding("n", "focus_url", "New link"),
         Binding("escape", "leave_input", "Back", show=False),
@@ -325,6 +448,13 @@ class ClipperApp(App):
         if not url or ("youtu" not in url and not url.startswith("http")):
             self.notify("Paste a YouTube link first.", severity="warning")
             return
+        self.launch(url)
+        self.query_one("#url", Input).value = ""
+        self.query_one("#jobs", DataTable).focus()
+        self.notify("Job started — it keeps running even if you close clipse.", title="Starting")
+
+    def launch(self, url: str, quiet: bool = False) -> None:
+        """Start a clipping job for `url` with the settings currently chosen in the New job panel."""
         cmd = [sys.executable, str(HERE / "clip.py"), "run", url,
                "--speech-model", str(self.query_one("#speech", Select).value),
                "--judge", str(self.query_one("#judge", Select).value),
@@ -340,7 +470,7 @@ class ClipperApp(App):
                "--clips", self.query_one("#nclips", Input).value.strip() or "5",
                "--sensitivity", self.query_one("#sens", Input).value.strip() or "2.5"]
         post_to = str(self.query_one("#postto", Select).value)
-        if post_to != "none":
+        if post_to != "none" and not quiet:
             import instagram
             import youtube
             missing = [p for p in (["youtube", "instagram"] if post_to == "both" else [post_to])
@@ -358,9 +488,6 @@ class ClipperApp(App):
                          start_new_session=True, cwd=str(HERE))
         self.starting[url] = time.time()
         self.follow_url = url          # jump to this job as soon as it shows up
-        self.query_one("#url", Input).value = ""
-        self.query_one("#jobs", DataTable).focus()
-        self.notify("Job started — it keeps running even if you close clipse.", title="Starting")
 
     # ---- refresh
     def refresh_all(self) -> None:
@@ -667,6 +794,17 @@ class ClipperApp(App):
         if cur and cur[1].get("url"):
             url = cur[1]["url"]
         platform_util.open_path(url)
+
+    def action_discover(self) -> None:
+        def done(urls):
+            if not urls:
+                return
+            for u in urls:
+                self.launch(u, quiet=True)
+            post_to = str(self.query_one("#postto", Select).value)
+            self.notify(f"Started {len(urls)} job(s) with the New job settings"
+                        + (f"; posting to {post_to}" if post_to != "none" else "") + ".", title="Discover")
+        self.push_screen(DiscoverScreen(str(self.query_one("#judge", Select).value)), done)
 
     def action_restart_job(self) -> None:
         j = self.jobs.get(self.selected or "")
