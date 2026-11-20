@@ -222,6 +222,7 @@ class ClipperApp(App):
         Binding("u", "upload_clip", "Upload"),
         Binding("y", "open_moment", "On YouTube"),
         Binding("s", "stop_job", "Stop job"),
+        Binding("r", "restart_job", "Restart job"),
         Binding("tab", "focus_next", "Next pane", show=False),
         Binding("n", "focus_url", "New link"),
         Binding("escape", "leave_input", "Back", show=False),
@@ -666,6 +667,23 @@ class ClipperApp(App):
         if cur and cur[1].get("url"):
             url = cur[1]["url"]
         platform_util.open_path(url)
+
+    def action_restart_job(self) -> None:
+        j = self.jobs.get(self.selected or "")
+        if not j:
+            self.notify("Select a job first.", severity="warning")
+            return
+        if not j.live:
+            self.notify("Restart is for live streams. For a finished video, paste its link to run it again.",
+                        severity="warning")
+            return
+        logs = OUT / "_logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        subprocess.Popen([sys.executable, str(HERE / "clip.py"), "restart", j.id],
+                         stdout=open(logs / f"restart-cmd-{j.id}-{time.strftime('%H%M%S')}.log", "w"),
+                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(HERE))
+        self.notify("Restarting with the same settings: it stops cleanly first (finishing any clip or upload), "
+                    "then starts again. The part that already aired isn't clipped twice.", title="Restart")
 
     def action_stop_job(self) -> None:
         j = self.jobs.get(self.selected or "")

@@ -41,6 +41,8 @@ Fonts are picked per system: Arial on macOS, and Noto or DejaVu on Linux (any in
 ./clipse run <url>            # the same job from the command line
 ./clipse hook <clip.mp4>      # add a hook intro to a clip you already have
 ./clipse models               # list the speech and judge models
+./clipse restart <link>       # stop a live job and start it again with the same settings
+./clipse restart <link> --clips 25 --style split   # …or with some settings changed
 ```
 
 Run the TUI in a normal terminal (Terminal, iTerm, …). Some embedded terminal panels don't pass mouse clicks through, but everything also works from the keyboard.
@@ -58,6 +60,7 @@ Run the TUI in a normal terminal (Terminal, iTerm, …). Some embedded terminal 
 | `d` | delete a clip file (asks first) |
 | `y` / `f` | open that moment on YouTube / show the file in its folder |
 | `s` | stop the selected job |
+| `r` | restart the selected live job with the same settings (it stops cleanly first; the already-aired part isn't clipped twice) |
 | `q` | quit (jobs keep running in the background) |
 
 For a live stream, the progress panel shows chat rate, chat and voice spike scores and clips made. For a finished stream it shows which processing step it's on.

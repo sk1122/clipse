@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("tui", help="open the terminal UI")
     sub.add_parser("models", help="list speech and judge models")
+    rs = sub.add_parser("restart", help="stop a live job and start it again with the same settings")
+    rs.add_argument("job", help="the stream's link or video id")
+    rs.add_argument("--redo-catchup", action="store_true",
+                    help="also re-clip the part that already aired (skipped by default if it finished)")
+    rs.add_argument("changes", nargs=argparse.REMAINDER,
+                    help="any run flags to change on restart, e.g. --style split --post-max 20 (yours win)")
     hk = sub.add_parser("hook", help="add a hook intro (teaser + hook line) to finished clips")
     hk.add_argument("clips", nargs="+", help="clip files")
     hk.add_argument("--text", help="hook line to use (default: written by the judge model)")
@@ -185,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     elif argv[0].startswith("http") or "youtu" in argv[0]:
         argv = ["run", *argv]          # `clipse <url>` works too
     a = build_parser().parse_args(argv)
+    a.argv = argv                       # the exact command, saved with each job so it can be restarted
 
     if a.cmd == "tui":
         import tui
@@ -209,6 +216,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if a.cmd == "post":
         return run_post(a)
+    if a.cmd == "restart":
+        return run_restart(a)
     if a.cmd == "hook":
         return run_hook(a)
     if a.cmd == "models":
@@ -314,6 +323,100 @@ def run_post(a) -> int:
     return rc
 
 
+# settings saved by older versions -> command-line flags (used when a job has no saved command)
+_FLAG_FOR = {"speech_model": "--speech-model", "judge": "--judge", "captions": "--captions", "style": "--style",
+             "filter": "--filter", "music": "--music", "post_profile": "--post-profile", "speed": "--speed",
+             "post_to": "--post-to", "clips": "--clips", "sensitivity": "--sensitivity", "min_len": "--min-len",
+             "max_len": "--max-len", "duration": "--duration", "post_max": "--post-max",
+             "post_privacy": "--post-privacy", "music_volume": "--music-volume"}
+_SWITCH_FOR = {"karaoke": ("--karaoke", "--no-karaoke"), "zoom_punch": ("--zoom-punch", "--no-zoom-punch"),
+               "hook_intro": ("--hook-intro", None), "landscape": ("--landscape", None),
+               "no_from_start": ("--no-from-start", None)}
+
+
+def _running_command(pid) -> list[str] | None:
+    """The exact command a still-running job was started with (for jobs from before commands were saved)."""
+    import shlex
+    try:
+        args = subprocess.run(["ps", "-o", "args=", "-p", str(int(pid))], capture_output=True, text=True,
+                              timeout=10).stdout.strip()
+    except (ValueError, TypeError, subprocess.SubprocessError):
+        return None
+    parts = shlex.split(args) if args else []
+    i = next((k for k, x in enumerate(parts) if x.endswith("clip.py")), None)
+    return parts[i + 1:] if i is not None and len(parts) > i + 1 else None
+
+
+def _command_from_settings(url: str, s: dict) -> list[str]:
+    argv = ["run", url]
+    for k, flag in _FLAG_FOR.items():
+        if s.get(k) not in (None, "", 0) or k in ("speed",) and s.get(k):
+            argv += [flag, str(s[k])]
+    for k, (on, off) in _SWITCH_FOR.items():
+        if s.get(k) is True:
+            argv.append(on)
+        elif s.get(k) is False and off:
+            argv.append(off)
+    return argv
+
+
+def find_job(ref: str) -> Path | None:
+    """A job folder from a video id or any YouTube link to it."""
+    import re
+    m = re.search(r"(?:v=|youtu\.be/|/live/|/shorts/)([\w-]{11})", ref)
+    vid = m.group(1) if m else ref.strip()
+    d = HERE / "out" / vid
+    return d if (d / "job.json").exists() else None
+
+
+def run_restart(a) -> int:
+    import signal
+    import time
+    job = find_job(a.job)
+    if not job:
+        print(f"No job found for {a.job}")
+        return 1
+    meta = json.loads((job / "job.json").read_text())
+    s = meta.get("settings", {})
+    pid = meta.get("pid")
+    argv = list(s.get("argv") or _running_command(pid) or _command_from_settings(meta["url"], s))
+    if argv and argv[0] != "run":
+        argv = ["run", *argv]
+
+    def alive(p):
+        try:
+            os.kill(p, 0)
+            return True
+        except (OSError, TypeError):
+            return False
+
+    if pid and alive(pid):
+        print(f"Stopping the running job (pid {pid}); it finishes the clip and uploads in progress first…")
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(180):
+            if not alive(pid):
+                break
+            time.sleep(1)
+        if alive(pid):
+            print("It's still finishing after 3 minutes — try again shortly, or stop it with s in the TUI.")
+            return 1
+    changes = [x for x in (a.changes or []) if x != "--"]
+    if changes:
+        argv += changes                  # later flags override earlier ones
+    # the already-aired part doesn't need clipping twice
+    events = (job / "events.jsonl").read_text().splitlines() if (job / "events.jsonl").exists() else []
+    catchup_done = any('"part": "from_start"' in l and '"kind": "done"' in l for l in events)
+    if catchup_done and not a.redo_catchup and "--no-from-start" not in argv:
+        argv.append("--no-from-start")
+    logs = HERE / "out" / "_logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    log = logs / f"{time.strftime('%Y%m%d-%H%M%S')}-restart-{job.name}.log"
+    p = subprocess.Popen([sys.executable, "-u", str(HERE / "clip.py"), *argv], stdout=open(log, "w"),
+                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(HERE))
+    print(f"✓ Restarted {meta.get('title') or job.name} (pid {p.pid})\n  same settings: {' '.join(argv[2:])}\n  log: {log}")
+    return 0
+
+
 def run_hook(a) -> int:
     import time
     import hook
@@ -366,7 +469,7 @@ def run(a) -> int:
     info = sources.fetch_info(a.url, tmp)
     out_dir = out_root / info["id"]
     is_live = info.get("is_live") or info.get("live_status") == "is_live"
-    settings = {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "style", "karaoke", "zoom_punch", "filter", "music", "post_profile", "hook_intro", "speed", "post_to", "clips", "sensitivity", "min_len",
+    settings = {"argv": [x for x in a.argv if x]} | {k: getattr(a, k) for k in ("speech_model", "judge", "captions", "style", "karaoke", "zoom_punch", "filter", "music", "post_profile", "hook_intro", "speed", "post_to", "post_max", "post_privacy", "music_volume", "clips", "sensitivity", "min_len",
                                            "max_len", "landscape", "no_from_start", "duration")}
     progress.setup(out_dir, a.url, info, "live" if is_live else "vod", settings)
     (tmp / "info.json").unlink(missing_ok=True)
