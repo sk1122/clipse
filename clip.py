@@ -393,9 +393,12 @@ def run_restart(a) -> int:
     if pid and alive(pid):
         print(f"Stopping the running job (pid {pid}); it finishes the clip and uploads in progress first…")
         os.kill(pid, signal.SIGTERM)
-        for _ in range(180):
+        for i in range(180):
             if not alive(pid):
                 break
+            if i == 60:
+                # still waiting on the already-aired pass: that reruns after the restart anyway, so don't wait for it
+                os.kill(pid, signal.SIGTERM)
             time.sleep(1)
         if alive(pid):
             print("It's still finishing after 3 minutes — try again shortly, or stop it with s in the TUI.")
