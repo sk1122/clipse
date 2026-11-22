@@ -16,6 +16,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -60,10 +61,31 @@ def _save(items: list[dict]) -> None:
     tmp.replace(QUEUE)
 
 
+JUNK_TITLE = re.compile(r"^\s*$|^placeholder\b|^live moment\b|^untitled\b", re.I)
+MIN_SECONDS = 8.0
+
+
+def junk(file: str | Path, meta: dict) -> str | None:
+    """Why a clip shouldn't be posted at all (a fallback title, or too short to be a clip), else None."""
+    title = str(meta.get("title") or "")
+    if JUNK_TITLE.search(title):
+        return f"no real title ({title!r})"
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                            str(file)], capture_output=True, text=True)
+        if float(r.stdout.strip()) < MIN_SECONDS:
+            return "shorter than 8 s"
+    except ValueError:
+        pass
+    return None
+
+
 def add(file: str | Path, platform: str, meta: dict, source: str | None, *, prof: dict | None = None,
         privacy: str = "private", max_per_day: int = 40, gap_min: float = 0, hours: str = DEFAULT_HOURS) -> bool:
     """Queue a clip for a platform. Returns False if it's already queued."""
     f = str(Path(file).resolve())
+    if junk(f, meta):
+        return False
     keep = {k: v for k, v in meta.items() if isinstance(v, (str, int, float, bool, type(None)))}
     with _locked():
         items = _load()
@@ -201,7 +223,7 @@ def _post_one(i: dict, log) -> None:
     import youtube
     f = Path(i["file"])
     mod = _mod(i["platform"])
-    if not f.exists() or mod.posted(f):
+    if not f.exists() or mod.posted(f) or junk(f, i["meta"]):
         remove(i["file"], i["platform"])
         return
     log(f"[{time.strftime('%H:%M')}] [{i['platform']}] posting {f.name} (score {_priority(i):.1f})…")

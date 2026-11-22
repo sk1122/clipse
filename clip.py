@@ -139,8 +139,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = r.add_argument_group("clips")
     c.add_argument("--clips", type=int, default=5, help="clips to make from a finished stream / the aired part (default 5)")
-    c.add_argument("--min-len", type=int, default=20, help="min clip length, seconds (default 20)")
-    c.add_argument("--max-len", type=int, default=60, help="max clip length, seconds (default 60)")
+    c.add_argument("--min-len", type=int, default=12, help="min clip length, seconds (default 12)")
+    c.add_argument("--max-len", type=int, default=30, help="max clip length, seconds (default 30)")
     c.add_argument("--landscape", action="store_true", help="keep 16:9 instead of 9:16 vertical")
     c.add_argument("--captions", default="hinglish", choices=["hinglish", "english", "original", "hindi"],
                    help="caption + hook language: hinglish (Hindi in Roman script; English stays English), "

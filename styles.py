@@ -40,12 +40,12 @@ def resolve(style: str, cam) -> str:
     """The style actually used for this clip, given the webcam found (or not)."""
     if style == "auto":
         if cam is None:
-            return "classic"
+            return "fullscreen"               # a letterboxed strip loses viewers; fill the screen
         return "fullscreen" if cam.full_frame else "split"
     if style in ("split", "reaction") and cam is not None and cam.full_frame:
         return "fullscreen"                   # the camera IS the picture: nothing to split
     if style in ("split", "reaction") and cam is None:
-        return "classic"
+        return "fullscreen"
     return style
 
 

@@ -37,7 +37,7 @@ class ClipChoice(BaseModel):
     candidate: int = Field(description="Index of the candidate this clip comes from")
     start: float = Field(description="Clip start, absolute seconds from the start of the stream")
     end: float = Field(description="Clip end, absolute seconds from the start of the stream")
-    title: str = Field(description="Punchy title for TikTok/Shorts, under 60 characters")
+    title: str = Field(description="Punchy title for TikTok/Shorts/Reels, under 60 characters. Name the game and use words people search for (e.g. \"GTA 6\", \"funny moment\", \"fail\"), since search reads the title")
     hook: str = Field(description="On-screen hook text shown at the top, 2-7 words, ALL CAPS ok")
     why: str = Field(description="One sentence: why this moment will perform")
     virality: int = Field(description="1-10 estimate of viral potential")
@@ -138,7 +138,7 @@ def finish_naturally(start: float, end: float, words: list[Word], min_len: float
     mid-sentence. The end may grow (up to max_len / `limit`) to let a sentence finish."""
     ws = sorted(words, key=lambda w: w.t)
     start = _snap_start(start, ws)
-    grace = 8.0   # a clip may run a few seconds past max_len to finish its sentence
+    grace = 4.0   # a clip may run a few seconds past max_len to finish its sentence
     hard = start + max_len + grace if limit is None else min(start + max_len + grace, limit)
     lo = max(start + min_len, end - 2.0)          # don't end much earlier than asked
     inside = [w for w in ws if lo - 8 <= w.t <= hard + 1]
@@ -173,7 +173,7 @@ def _snap_start(t: float, words: list[Word]) -> float:
 def choose_heuristic(cands: list[Candidate], words: list[Word], n: int, min_len: int,
                      max_len: int) -> list[Clip]:
     best = sorted(cands, key=lambda c: c.score, reverse=True)[:n]
-    length = max(min_len, min(max_len, 35))   # a target; finish_naturally() moves the end to a pause
+    length = max(min_len, min(max_len, 24))   # a target; finish_naturally() moves the end to a pause
     clips = []
     for c in best:
         start = max(0.0, c.peak - length * 0.7)

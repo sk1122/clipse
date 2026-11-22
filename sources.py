@@ -10,6 +10,19 @@ from pathlib import Path
 YTDLP = [sys.executable, "-m", "yt_dlp", "--no-warnings", "--no-progress"]
 
 
+CENSOR = str.maketrans("", "", "[]_")
+
+
+def clean_words(words: list) -> list:
+    """Drop the "[ __ ]" bleep marks (and stray brackets) so they never show up in captions."""
+    out = []
+    for w in words:
+        t = w.text.translate(CENSOR).strip()
+        if t:
+            out.append(type(w)(w.t, t))
+    return out
+
+
 @dataclass
 class Word:
     t: float  # seconds from video start
@@ -141,7 +154,7 @@ def fetch_words(url: str, info: dict, work: Path) -> list[Word]:
             for k, tok in enumerate(toks):
                 words.append(Word((start + k * step) / 1000, tok))
     words.sort(key=lambda w: w.t)
-    return words
+    return clean_words(words)
 
 
 # ---------- audio loudness ----------

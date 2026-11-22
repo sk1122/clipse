@@ -144,7 +144,7 @@ Pick a style in the TUI (**style**) or with `--style`:
 | `fullscreen` | content fills the frame, with a webcam bubble in a corner |
 | `reaction` | the webcam fills most of the frame, with the content in a strip below |
 | `classic` | 16:9 video on a blurred background, with the hook banner on top |
-| `auto` (default) | `split` when the stream has a webcam overlay, `fullscreen` when the camera is the whole picture (IRL, just chatting, vlogs), `classic` when there's no camera |
+| `auto` (default) | `split` when the stream has a webcam overlay, `fullscreen` when the camera is the whole picture (IRL, just chatting, vlogs) or there's no camera (the gameplay is cropped to fill the screen) |
 
 **How the webcam is found:**
 - **Overlays:** clipse detects the streamer's face and the fixed rectangle around it, in any corner, size or shape. Faces that never move (posters, menu art) are ignored.
@@ -184,7 +184,7 @@ The judge also picks which word of the hook to highlight.
 ```
 
 - **Which hashtag set:** the judge labels each clip **funny** (fails, reactions, chaos) or **highlight** (cool, impressive or hype moments), and the matching set is used.
-- **Keywords:** they become YouTube tags, and go at the end of the description or caption on both platforms.
+- **Keywords:** they become YouTube tags and a line in the description. On Instagram they go right after the title and hook, before the hashtags, because Instagram search reads the caption. Reel captions have no source link: a link out marks a Reel as reposted and cuts its reach.
 - **Example:** see `profiles/gta6.json`.
 
 **Auto-post while clipping:** in the TUI, pick **post to** next to the link (or pass `--post-to youtube|instagram|both`), and every clip joins the posting queue as soon as it's made. The background poster spreads posts out (see [Posting schedule](#posting-schedule-and-daily-limits)), so posting never slows down clipping. The clip list marks queued clips `⏳yt` / `⏳ig` and posted ones `▶yt` / `▶ig`. Connect each platform first (below).
@@ -254,6 +254,7 @@ Clips aren't posted the moment they're made. Twenty Reels in 40 minutes compete 
 - **One count for all jobs:** the cap (default 40 per platform per day, `--post-max` / `--max`) is checked by the poster, the only process that posts, so jobs can't overshoot it together.
 - **When the count resets:** it goes by UTC day, so midnight UTC (05:30 IST).
 - **YouTube's own limit:** when the channel hits it, YouTube posting pauses until the next day. Clipping carries on.
+- **No junk:** clips with a fallback title ("Live moment 17:06", "placeholder") or under 8 seconds are never queued or posted.
 - **Starting and stopping:** the poster starts by itself when something is queued, and stops after an hour with nothing to post.
 
 ```bash
@@ -274,7 +275,7 @@ Clips aren't posted the moment they're made. Twenty Reels in 40 minutes compete 
 - **Already-aired part of a live stream:** downloaded from YouTube's DVR in numbered chunks (their length is read for each stream), ranked by loudness plus transcript. Each clip is then captioned from its own audio.
 - **Finished streams:** chat replay, YouTube's "most replayed" data and loudness.
 
-The judge reads the transcript and chat, decides whether a moment is worth posting, trims it to 20–60 s and writes a title and hook. Each clip's start and end are then moved to pauses in speech, so nothing starts or stops mid-sentence (a clip may run a few seconds over to finish its sentence). Every clip ends with a short fade.
+The judge reads the transcript and chat, decides whether a moment is worth posting, trims it to 12–30 s and writes a searchable title (the game's name plus the words people search for) and a hook. Each clip's start and end are then moved to pauses in speech, so nothing starts or stops mid-sentence (a clip may run a few seconds over to finish its sentence). Every clip ends with a short fade.
 
 ## Layout
 

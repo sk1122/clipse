@@ -20,7 +20,8 @@ def transcribe(media: Path, model_size: str = "small", language: str | None = No
         _models[model_size] = _load(WhisperModel, model_size)
     segments, _ = _models[model_size].transcribe(
         _load_audio(media), word_timestamps=True, vad_filter=True, language=language)
-    return [Word(w.start, w.word.strip()) for s in segments for w in (s.words or []) if w.word.strip()]
+    from sources import clean_words
+    return clean_words([Word(w.start, w.word.strip()) for s in segments for w in (s.words or []) if w.word.strip()])
 
 
 def _load_audio(media: Path):

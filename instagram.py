@@ -112,12 +112,13 @@ def _record(clip: Path, media_id: str, permalink: str | None, speed: float) -> d
 
 def caption(meta: dict, source_url: str | None, prof: dict | None = None) -> str:
     import postprofile as profile
+    # No source link: a link out marks the Reel as reposted and cuts its reach. Search (the Reels tab,
+    # keyword search) reads the caption, so the title and keywords come first and the hashtags stay few.
+    kws = profile.keywords(prof or {})
     lines = [meta.get("title") or "", "", meta.get("hook") or ""]
-    if source_url:
-        lines += ["", f"Clipped from: {source_url}"]
+    if kws:
+        lines += ["", " | ".join(kws)]
     lines += ["", profile.hashtags(prof or {}, meta) or "#gaming #streamhighlights #reels"]
-    if profile.keywords(prof or {}):
-        lines += ["", ", ".join(profile.keywords(prof))]
     return "\n".join(lines).strip()[:2100]          # Instagram's caption limit is 2,200 characters
 
 

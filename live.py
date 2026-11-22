@@ -336,7 +336,7 @@ class Live:
                 print(f"    Claude unavailable ({type(e).__name__}) — using the default cut")
         if clip is None:
             s = max(0.0, moment - t0 - 30)
-            clip = picker.Clip(s, min(win_len, s + 35), f"Live moment {stamp}", "WAIT FOR IT",
+            clip = picker.Clip(s, min(win_len, s + 24), f"Live moment {stamp}", "WAIT FOR IT",
                                skipped or "chat spike", 5)
         clip.start, clip.end = picker.finish_naturally(clip.start, clip.end, words, self.a.min_len,
                                                        self.a.max_len, limit=win_len)
